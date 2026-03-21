@@ -164,7 +164,7 @@ input[type=text]{flex:1;min-width:160px}
           <div class="fg"><label>MUSCLE GROUP</label>
             <select id="log-sheet" onchange="updateLogEx()"></select>
           </div>
-          <div class="fg"><label>EXERCISE</label><select id="log-ex"></select></div>
+          <div class="fg"><label>EXERCISE</label><select id="log-ex" onchange="prefillSets()"></select></div>
         </div>
       </div>
       <div id="log-activity-wrap" style="display:none;margin-bottom:12px">
@@ -413,8 +413,19 @@ function selectChip(ei, di){
   const ex=window._histExs[ei];
   const sessions=getMergedSessions(ex);
   const s=sessions[d];
+  // Collapse previously selected chip back to preview
+  if(window._selEi===ei && window._selDi!==undefined && window._selDi!==di){
+    const prev=document.getElementById('chip-'+ei+'-'+window._selDi);
+    if(prev){
+      const prevD=window._chipDates[ei][window._selDi];
+      const prevS=sessions[prevD];
+      prev.querySelector('.chip-val').textContent=prevS.d.split('\n').slice(0,3).join('\n');
+    }
+  }
   document.querySelectorAll('[id^="chip-'+ei+'-"]').forEach(c=>c.classList.remove('sel'));
   document.getElementById('chip-'+ei+'-'+di).classList.add('sel');
+  // Expand selected chip to show all lines
+  document.getElementById('chip-'+ei+'-'+di).querySelector('.chip-val').textContent=s.d;
   window._selEi=ei; window._selDi=di;
   document.getElementById('detail-'+ei).innerHTML='<div class="detail">'
     +'<div class="detail-lbl" style="display:flex;justify-content:space-between;align-items:center">'
@@ -636,10 +647,22 @@ function updateLogType(){
   if(t==='exercise') updateLogEx();
 }
 
+function prefillSets(){
+  const group=document.getElementById('log-sheet').value;
+  const name=document.getElementById('log-ex').value;
+  const ex=GYM_EX.find(e=>e.group===group&&e.name===name);
+  if(!ex) return;
+  const dates=Object.keys(ex.sessions).sort((a,b)=>new Date(b)-new Date(a));
+  if(!dates.length) return;
+  const raw=ex.sessions[dates[0]].d.split('\n').map(l=>l.replace(/\s*\(\d+kg\)$/,'')).join('\n');
+  document.getElementById('log-sets').value=raw;
+}
+
 function updateLogEx(){
   const group=document.getElementById('log-sheet').value;
   document.getElementById('log-ex').innerHTML=GYM_EX.filter(e=>e.group===group)
     .map(ex=>'<option>'+ex.name+'</option>').join('');
+  prefillSets();
 }
 
 async function addEntry(){
