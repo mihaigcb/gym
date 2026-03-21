@@ -59,6 +59,13 @@ function computeStats(setsRaw) {
   return { totalVol, maxWeight };
 }
 
+// Skip seeding if data already exists
+const existing = db.prepare('SELECT COUNT(*) as count FROM workouts').get();
+if (existing.count > 0) {
+  console.log(`Database already has ${existing.count} workouts, skipping seed.`);
+  process.exit(0);
+}
+
 const content = fs.readFileSync('./gym_journal_export.csv', 'utf-8');
 const rows = parseCSV(content);
 
