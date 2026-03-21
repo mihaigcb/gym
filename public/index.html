@@ -370,7 +370,7 @@ function renderHistory(){
   let lastGroup='', html='';
   exs.forEach((ex,i)=>{
     const sessions=getMergedSessions(ex);
-    const dates=Object.keys(sessions);
+    const dates=Object.keys(sessions).sort((a,b)=>new Date(b)-new Date(a));
     if(ex.group!==lastGroup){
       lastGroup=ex.group;
       const gc=GROUP_COLORS[ex.group]||{bg:'#f1f5f9',color:'#475569'};
@@ -400,7 +400,7 @@ function renderHistory(){
   });
   list.innerHTML=html;
   window._histExs=exs;
-  window._chipDates=exs.map(ex=>Object.keys(getMergedSessions(ex)));
+  window._chipDates=exs.map(ex=>Object.keys(getMergedSessions(ex)).sort((a,b)=>new Date(b)-new Date(a)));
 }
 
 function toggleCard(i){
