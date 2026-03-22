@@ -163,6 +163,30 @@ input[type=text]{flex:1;min-width:160px}
         <input id="sum-slider" type="range" min="6" max="6" value="6" style="width:100%;accent-color:#1a1a1a;cursor:pointer;transform:scaleX(-1)" oninput="renderSummaryChart()">
       </div>
     </div>
+
+    <!-- Withings body composition -->
+    <div style="border-top:1px solid #e5e3de;margin:8px 0 20px"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div style="font-size:13px;font-weight:500;color:#1a1a1a">Body composition <span style="font-size:11px;color:#aaa;font-weight:400">via Withings</span></div>
+      <div id="withings-btns" style="display:flex;gap:6px"></div>
+    </div>
+    <div id="withings-status" style="font-size:12px;color:#aaa;margin-bottom:10px"></div>
+    <div id="withings-chart-wrap" style="display:none">
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="wbtn active" id="wbtn-weight"   onclick="setWithingsMetric('weight')"      style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#1a1a1a;color:#fff;border:none">Weight</button>
+        <button class="wbtn"        id="wbtn-fat_ratio" onclick="setWithingsMetric('fat_ratio')"   style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#1a1a1a;border:1px solid #e5e3de">Fat %</button>
+        <button class="wbtn"        id="wbtn-fat_mass"  onclick="setWithingsMetric('fat_mass')"    style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#1a1a1a;border:1px solid #e5e3de">Fat mass</button>
+        <button class="wbtn"        id="wbtn-muscle_mass" onclick="setWithingsMetric('muscle_mass')" style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#1a1a1a;border:1px solid #e5e3de">Muscle mass</button>
+        <button class="wbtn"        id="wbtn-bone_mass" onclick="setWithingsMetric('bone_mass')"   style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#1a1a1a;border:1px solid #e5e3de">Bone mass</button>
+      </div>
+      <div class="chart-card">
+        <div class="chart-inner" style="height:220px"><canvas id="withings-chart"></canvas></div>
+        <div class="chart-sub" id="withings-chart-sub"></div>
+        <div id="withings-slider-wrap" style="display:none;padding:8px 4px 2px">
+          <input id="withings-slider" type="range" min="6" max="6" value="6" style="width:100%;accent-color:#1a1a1a;cursor:pointer;transform:scaleX(-1)" oninput="renderWithingsChart()">
+        </div>
+      </div>
+    </div>
   </div>
   <div id="sec-log" class="sec active">
     <div class="log-form">
@@ -864,6 +888,123 @@ function renderLog(){
   el.innerHTML=html;
 }
 
+// ── WITHINGS ──────────────────────────────────────────────────────────────────
+let withingsData=[], withingsMetric='weight', withingsChart=null;
+
+const WITHINGS_LABELS={
+  weight:'Weight (kg)', fat_ratio:'Fat ratio (%)',
+  fat_mass:'Fat mass (kg)', muscle_mass:'Muscle mass (kg)', bone_mass:'Bone mass (kg)'
+};
+const WITHINGS_COLORS={
+  weight:'#2563eb', fat_ratio:'#f59e0b',
+  fat_mass:'#ef4444', muscle_mass:'#16a34a', bone_mass:'#8b5cf6'
+};
+
+async function initWithings(){
+  const status=await fetch('/api/withings/status').then(r=>r.json());
+  const btns=document.getElementById('withings-btns');
+  const statusEl=document.getElementById('withings-status');
+  if(status.connected){
+    btns.innerHTML=
+      '<button onclick="syncWithings()" style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#1a1a1a;border:1px solid #e5e3de">&#8635; Sync</button>'
+      +'<button onclick="disconnectWithings()" style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#e55;border:1px solid #fecaca">Disconnect</button>';
+    await loadWithingsData();
+  } else {
+    btns.innerHTML='<a href="/auth/withings" style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#1a1a1a;color:#fff;border:none;text-decoration:none">Connect Withings</a>';
+    statusEl.textContent='Connect your Withings account to see body composition trends.';
+    document.getElementById('withings-chart-wrap').style.display='none';
+  }
+}
+
+async function loadWithingsData(){
+  withingsData=await fetch('/api/withings/measurements').then(r=>r.json());
+  const statusEl=document.getElementById('withings-status');
+  if(!withingsData.length){
+    statusEl.textContent='No measurements found. Try syncing.';
+    document.getElementById('withings-chart-wrap').style.display='none';
+  } else {
+    statusEl.textContent=withingsData.length+' measurements loaded.';
+    document.getElementById('withings-chart-wrap').style.display='';
+    renderWithingsChart();
+  }
+}
+
+function setWithingsMetric(m){
+  withingsMetric=m;
+  document.querySelectorAll('.wbtn').forEach(b=>{
+    const isActive=b.id==='wbtn-'+m;
+    b.style.background=isActive?'#1a1a1a':'#fff';
+    b.style.color=isActive?'#fff':'#1a1a1a';
+    b.style.border=isActive?'none':'1px solid #e5e3de';
+  });
+  renderWithingsChart();
+}
+
+function renderWithingsChart(){
+  const valid=withingsData.filter(d=>d[withingsMetric]!=null);
+  if(!valid.length) return;
+  const MIN_WIN=12;
+  const total=valid.length;
+  const slider=document.getElementById('withings-slider');
+  const sliderWrap=document.getElementById('withings-slider-wrap');
+  if(total>MIN_WIN){
+    sliderWrap.style.display='';
+    slider.min=MIN_WIN; slider.max=total;
+    if(!slider.dataset.init){slider.value=MIN_WIN; slider.dataset.init='1';}
+  } else {
+    sliderWrap.style.display='none';
+  }
+  const windowSize=total>MIN_WIN?(parseInt(slider.value)||MIN_WIN):total;
+  const visible=valid.slice(total-windowSize);
+  const color=WITHINGS_COLORS[withingsMetric];
+  document.getElementById('withings-chart-sub').textContent=WITHINGS_LABELS[withingsMetric];
+  if(withingsChart) withingsChart.destroy();
+  const ctx=document.getElementById('withings-chart').getContext('2d');
+  withingsChart=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:visible.map(d=>d.date),
+      datasets:[{
+        label:WITHINGS_LABELS[withingsMetric],
+        data:visible.map(d=>d[withingsMetric]),
+        borderColor:color, borderWidth:2,
+        pointRadius:3, pointBackgroundColor:color,
+        tension:0.2, fill:true,
+        backgroundColor:color.replace(')',',0.07)').replace('rgb','rgba')
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:i=>i.raw+' '+(withingsMetric==='fat_ratio'?'%':'kg')}}},
+      scales:{
+        x:{ticks:{maxTicksLimit:8,maxRotation:30,font:{size:10}}, grid:{display:false}},
+        y:{ticks:{font:{size:10},callback:v=>v+(withingsMetric==='fat_ratio'?'%':'kg')}, grid:{color:'#f0eeeb'}}
+      }
+    }
+  });
+}
+
+async function syncWithings(){
+  const statusEl=document.getElementById('withings-status');
+  statusEl.textContent='Syncing…';
+  const r=await fetch('/api/withings/sync',{method:'POST'});
+  const data=await r.json();
+  if(data.success){ showToast('Withings synced successfully'); await loadWithingsData(); }
+  else { statusEl.textContent='Sync failed: '+data.error; }
+}
+
+async function disconnectWithings(){
+  if(!confirm('Disconnect Withings? This will remove stored tokens.')) return;
+  await fetch('/api/withings/disconnect',{method:'DELETE'});
+  withingsData=[];
+  showToast('Withings disconnected');
+  await initWithings();
+}
+
+// Handle redirect back from Withings OAuth
+if(location.hash.includes('withings=connected')) showToast('Withings connected successfully!');
+if(location.hash.includes('withings=error')) showToast('Withings connection failed. Try again.');
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init(){
   await loadData();
@@ -878,6 +1019,7 @@ async function init(){
   updateLogType();
   renderLog();
   renderSummaryChart();
+  initWithings();
 }
 
 init();

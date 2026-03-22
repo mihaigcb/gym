@@ -31,6 +31,24 @@ async function initDB() {
       count INTEGER DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS withings_tokens (
+      userid TEXT PRIMARY KEY,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at BIGINT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS withings_measurements (
+      id SERIAL PRIMARY KEY,
+      date TEXT UNIQUE NOT NULL,
+      weight REAL,
+      fat_ratio REAL,
+      fat_mass REAL,
+      muscle_mass REAL,
+      bone_mass REAL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 }
 

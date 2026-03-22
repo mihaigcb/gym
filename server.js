@@ -230,6 +230,145 @@ app.delete('/api/activities/:id', async (req, res) => {
   }
 });
 
+// ── WITHINGS ──────────────────────────────────────────────────────────────────
+
+const WITHINGS_CLIENT_ID     = process.env.WITHINGS_CLIENT_ID;
+const WITHINGS_CLIENT_SECRET = process.env.WITHINGS_CLIENT_SECRET;
+const WITHINGS_REDIRECT_URI  = process.env.WITHINGS_REDIRECT_URI ||
+  'https://fulfilling-truth-production-71a1.up.railway.app/auth/withings/callback';
+
+// Meastype codes: 1=weight, 6=fat%, 8=fat mass, 76=muscle mass, 88=bone mass
+const WITHINGS_MEASTYPES = '1,6,8,76,88';
+
+async function getWithingsToken() {
+  const row = (await pool.query('SELECT * FROM withings_tokens LIMIT 1')).rows[0];
+  if (!row) return null;
+  // Refresh if expiring within 5 minutes
+  if (row.expires_at - Math.floor(Date.now() / 1000) < 300) {
+    const body = new URLSearchParams({
+      action: 'requesttoken', grant_type: 'refresh_token',
+      client_id: WITHINGS_CLIENT_ID, client_secret: WITHINGS_CLIENT_SECRET,
+      refresh_token: row.refresh_token
+    });
+    const resp = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body
+    });
+    const data = await resp.json();
+    if (data.status !== 0) return null;
+    const { access_token, refresh_token, expires_in } = data.body;
+    const expires_at = Math.floor(Date.now() / 1000) + expires_in;
+    await pool.query(
+      'UPDATE withings_tokens SET access_token=$1, refresh_token=$2, expires_at=$3 WHERE userid=$4',
+      [access_token, refresh_token, expires_at, row.userid]
+    );
+    return access_token;
+  }
+  return row.access_token;
+}
+
+async function syncWithings() {
+  const token = await getWithingsToken();
+  if (!token) throw new Error('Not connected to Withings');
+  const params = new URLSearchParams({
+    action: 'getmeas', meastype: WITHINGS_MEASTYPES, category: '1'
+  });
+  const resp = await fetch('https://wbsapi.withings.net/measure?' + params, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  const data = await resp.json();
+  if (data.status !== 0) throw new Error('Withings API error: ' + data.status);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const grp of data.body.measuregrps) {
+      const date = new Date(grp.date * 1000).toISOString().slice(0, 10);
+      const m = {};
+      for (const measure of grp.measures) {
+        m[measure.type] = +(measure.value * Math.pow(10, measure.unit)).toFixed(3);
+      }
+      await client.query(`
+        INSERT INTO withings_measurements (date, weight, fat_ratio, fat_mass, muscle_mass, bone_mass)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (date) DO UPDATE SET
+          weight      = COALESCE($2, withings_measurements.weight),
+          fat_ratio   = COALESCE($3, withings_measurements.fat_ratio),
+          fat_mass    = COALESCE($4, withings_measurements.fat_mass),
+          muscle_mass = COALESCE($5, withings_measurements.muscle_mass),
+          bone_mass   = COALESCE($6, withings_measurements.bone_mass)
+      `, [date, m[1]||null, m[6]||null, m[8]||null, m[76]||null, m[88]||null]);
+    }
+    await client.query('COMMIT');
+  } catch(e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+}
+
+// Start OAuth
+app.get('/auth/withings', (req, res) => {
+  if (!WITHINGS_CLIENT_ID) return res.status(500).send('WITHINGS_CLIENT_ID not set');
+  const url = 'https://account.withings.com/oauth2_user/authorize2?' + new URLSearchParams({
+    response_type: 'code', client_id: WITHINGS_CLIENT_ID,
+    scope: 'user.metrics', redirect_uri: WITHINGS_REDIRECT_URI,
+    state: Math.random().toString(36).slice(2)
+  });
+  res.redirect(url);
+});
+
+// OAuth callback
+app.get('/auth/withings/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) return res.redirect('/#progress?withings=denied');
+  try {
+    const body = new URLSearchParams({
+      action: 'requesttoken', grant_type: 'authorization_code',
+      client_id: WITHINGS_CLIENT_ID, client_secret: WITHINGS_CLIENT_SECRET,
+      code, redirect_uri: WITHINGS_REDIRECT_URI
+    });
+    const resp = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body
+    });
+    const data = await resp.json();
+    if (data.status !== 0) throw new Error('Token exchange failed: ' + data.status);
+    const { access_token, refresh_token, expires_in, userid } = data.body;
+    const expires_at = Math.floor(Date.now() / 1000) + expires_in;
+    await pool.query(`
+      INSERT INTO withings_tokens (userid, access_token, refresh_token, expires_at)
+      VALUES ($1,$2,$3,$4) ON CONFLICT (userid) DO UPDATE
+      SET access_token=$2, refresh_token=$3, expires_at=$4
+    `, [String(userid), access_token, refresh_token, expires_at]);
+    await syncWithings();
+    res.redirect('/#progress?withings=connected');
+  } catch(e) {
+    console.error('Withings callback error:', e.message);
+    res.redirect('/#progress?withings=error');
+  }
+});
+
+app.get('/api/withings/status', async (req, res) => {
+  const row = (await pool.query('SELECT userid FROM withings_tokens LIMIT 1')).rows[0];
+  res.json({ connected: !!row });
+});
+
+app.post('/api/withings/sync', async (req, res) => {
+  try {
+    await syncWithings();
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/withings/disconnect', async (req, res) => {
+  await pool.query('DELETE FROM withings_tokens');
+  res.json({ disconnected: true });
+});
+
+app.get('/api/withings/measurements', async (req, res) => {
+  try {
+    const rows = (await pool.query(
+      'SELECT date, weight, fat_ratio, fat_mass, muscle_mass, bone_mass FROM withings_measurements ORDER BY date ASC'
+    )).rows;
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 initDB().then(() => {
   app.listen(PORT, () => console.log(`Gym Journal running at http://localhost:${PORT}`));
 }).catch(err => {
