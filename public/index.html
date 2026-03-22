@@ -96,6 +96,8 @@ input[type=text]{flex:1;min-width:160px}
 .btn-cancel:hover{background:#f8f7f4}
 .btn-save{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;background:#1a1a1a;color:#fff;border:none}
 .btn-save:hover{opacity:.85}
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1a1a;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:opacity .22s,transform .22s;z-index:999;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
@@ -311,35 +313,40 @@ async function saveModal(){
   const ex=window._histExs[_mEi];
   const setsRaw = text.trim();
 
+  let r, msg;
   if(_mDate){
     // Edit existing session
     const s = getMergedSessions(ex)[_mDate];
-    await fetch('/api/exercises/'+s._id, {
+    r=await fetch('/api/exercises/'+s._id, {
       method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({setsRaw})
     });
+    msg='Session updated successfully';
   } else {
     // Add new session
     const inp=document.getElementById('modal-date-inp').value;
     if(!inp){alert('Please select a date');return;}
-    await fetch('/api/exercises', {
+    r=await fetch('/api/exercises', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({date: inp, groupName: ex.group, name: ex.name, setsRaw})
     });
+    msg='Session added successfully';
   }
 
   closeModal();
   await loadData();
   renderHistory();
+  if(r.ok) showToast(msg);
 }
 
 async function delSession(ei, d){
   if(!confirm('Delete this session?')) return;
   const ex=window._histExs[ei];
   const s=getMergedSessions(ex)[d];
-  await fetch('/api/exercises/'+s._id, {method:'DELETE'});
+  const r=await fetch('/api/exercises/'+s._id, {method:'DELETE'});
   await loadData();
   renderHistory();
+  if(r.ok) showToast('Session deleted');
 }
 
 function revertSession(ei, d){ /* no-op: DB is source of truth */ }
@@ -756,35 +763,40 @@ async function addEntry(){
   const date=document.getElementById('log-date').value;
   if(!date){alert('Please set a date');return;}
 
+  let ok=false, label='';
   if(t==='exercise'){
     const group=document.getElementById('log-sheet').value;
     const name=document.getElementById('log-ex').value;
     const sets=document.getElementById('log-sets').value.trim();
     if(!sets){alert('Please enter sets');return;}
-    await fetch('/api/exercises',{
+    const r=await fetch('/api/exercises',{
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({date, groupName:group, name, setsRaw:sets})
     });
+    ok=r.ok; label=name+' logged successfully';
   } else {
     const name=document.getElementById('log-activity').value;
     const count=parseInt(document.getElementById('log-count').value)||1;
-    await fetch('/api/activities',{
+    const r=await fetch('/api/activities',{
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({date, activityName:name, count})
     });
+    ok=r.ok; label=name+' logged successfully';
   }
 
   await loadData();
   renderHistory();
   renderLog();
+  if(ok) showToast(label);
 }
 
 async function delEntry(id, type){
   const endpoint = type==='activity' ? '/api/activities/'+id : '/api/exercises/'+id;
-  await fetch(endpoint, {method:'DELETE'});
+  const r=await fetch(endpoint, {method:'DELETE'});
   await loadData();
   renderHistory();
   renderLog();
+  if(r.ok) showToast('Entry deleted');
 }
 
 function toggleWeek(btn){btn.classList.toggle('open');btn.nextElementSibling.classList.toggle('open');}
@@ -861,6 +873,16 @@ async function init(){
 }
 
 init();
+
+let _toastTimer=null;
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.querySelector('.toast-msg').textContent=msg;
+  t.classList.add('show');
+  if(_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
+}
 </script>
+<div class="toast" id="toast"><span>&#10003;</span><span class="toast-msg"></span></div>
 </body>
 </html>
