@@ -821,9 +821,11 @@ function renderLog(){
     const wk=sortedWeeks[i];
     const entries=byWeek.get(wk);
     const isOpen=i===0;
-    const totalEx=entries.filter(e=>e.type==='exercise'||!e.type).length;
+    const exEntries=entries.filter(e=>e.type==='exercise'||!e.type);
+    const totalEx=exEntries.length;
+    const totalSets=exEntries.reduce((sum,e)=>sum+(e.sets?e.sets.split('\n').filter(Boolean).length:0),0);
     const label=fmtWeek(wk);
-    const countLabel=totalEx+' exercise'+(totalEx!==1?'s':'');
+    const countLabel=totalEx+' exercise'+(totalEx!==1?'s':'')+' | '+totalSets+' set'+(totalSets!==1?'s':'');
 
     html+='<button class="week-btn'+(isOpen?' open':'')+'" onclick="toggleWeek(this)">'
       +'<span class="wlabel">&#128197; '+label+'</span>'
