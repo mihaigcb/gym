@@ -99,6 +99,15 @@ input[type=text]{flex:1;min-width:160px}
 .timer-btn{padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid transparent;font-family:ui-monospace,monospace;transition:filter .15s,box-shadow .15s}
 .timer-btn:hover{filter:brightness(.88)}
 .timer-btn.running{box-shadow:0 0 0 2px #fff,0 0 0 4px #1d4ed8;filter:brightness(.88)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-hdr{text-align:center;font-size:9px;font-weight:700;color:#aaa;padding:3px 0;letter-spacing:.05em;text-transform:uppercase}
+.cal-day{border:1px solid #f0eeeb;border-radius:6px;padding:4px 3px;min-height:46px;background:#faf9f7}
+.cal-day.cur-month{background:#fff}
+.cal-day.today{border-color:#1a1a1a}
+.cal-day.today .cal-dn{font-weight:700;color:#1a1a1a}
+.cal-dn{font-size:10px;color:#bbb;margin-bottom:2px}
+.cal-day.cur-month .cal-dn{color:#666}
+.cal-icons{display:flex;flex-wrap:wrap;gap:1px;font-size:12px;line-height:1.3}
 .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1a1a;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:opacity .22s,transform .22s;z-index:999;display:flex;align-items:center;gap:8px;white-space:nowrap}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
@@ -112,8 +121,8 @@ input[type=text]{flex:1;min-width:160px}
 <div class="tabs">
   <button class="tab active" onclick="switchTab('log')">Log workout</button>
   <button class="tab" onclick="switchTab('progress')">Progress</button>
-  <button class="tab" onclick="switchTab('activity')">Activity</button>
-  <button class="tab" onclick="switchTab('history')">History</button>
+  <button class="tab" onclick="switchTab('activity')">History</button>
+  <button class="tab" onclick="switchTab('history')">Exercise log</button>
 </div>
 <div class="wrap">
   <div id="sec-history" class="sec">
@@ -131,6 +140,17 @@ input[type=text]{flex:1;min-width:160px}
   </div>
 
   <div id="sec-activity" class="sec">
+    <div style="background:#fff;border:1px solid #e5e3de;border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <button onclick="changeCalMonth(-1)" style="background:none;border:1px solid #e5e3de;border-radius:7px;padding:5px 12px;cursor:pointer;font-size:15px;color:#555;line-height:1">‹</button>
+        <span id="cal-month-label" style="font-size:13px;font-weight:600;letter-spacing:.02em"></span>
+        <button onclick="changeCalMonth(1)"  style="background:none;border:1px solid #e5e3de;border-radius:7px;padding:5px 12px;cursor:pointer;font-size:15px;color:#555;line-height:1">›</button>
+      </div>
+      <div id="cal-grid"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:11px;color:#666">
+        <span>💪 Workout</span><span>✅ Core</span><span>🏃 Cardio</span><span>🤸 Kineto</span><span>💃 Dancing</span><span>🧘 Pilates</span>
+      </div>
+    </div>
     <div class="cards" id="activity-wrap"></div>
   </div>
   <div id="sec-progress" class="sec">
@@ -388,7 +408,7 @@ function revertSession(ei, d){ /* no-op: DB is source of truth */ }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
 function switchTab(t){
-  document.querySelectorAll('.tab').forEach((b,i)=>b.classList.toggle('active',['log','progress','activity','history'][i]===t));
+  document.querySelectorAll('.tab').forEach((b,i)=>b.classList.toggle('active',['log','progress','activity','history'][i]===t)); // internal IDs unchanged
   document.querySelectorAll('.sec').forEach(s=>s.classList.remove('active'));
   document.getElementById('sec-'+t).classList.add('active');
   if(t==='history') renderHistory();
@@ -568,9 +588,79 @@ function matchWeek(dateStr, weekStart){
   return d>=weekStart && d<weekEnd;
 }
 
+// ── Calendar ──────────────────────────────────────────────────────────────────
+let calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
+
+function changeCalMonth(dir){
+  calMonth+=dir;
+  if(calMonth>11){calMonth=0;calYear++;}
+  if(calMonth<0){calMonth=11;calYear--;}
+  renderCalendar();
+}
+
+function renderCalendar(){
+  const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const lbl=document.getElementById('cal-month-label');
+  const grid=document.getElementById('cal-grid');
+  if(!lbl||!grid) return;
+  lbl.textContent=MONTH_NAMES[calMonth]+' '+calYear;
+
+  // Build icon map: 'YYYY-MM-DD' -> Set of emoji
+  const iconMap={};
+  const add=(date,icon)=>{if(!iconMap[date])iconMap[date]=new Set();iconMap[date].add(icon);};
+  for(const e of LOG){
+    const d=(e.date||'').split(/[T ]/)[0]; // normalize to YYYY-MM-DD
+    if(!d) continue;
+    if(e.type==='exercise'){
+      add(d,'💪');
+    } else if(e.type==='activity'){
+      if(e.activityName==='Core')    add(d,'✅');
+      else if(e.activityName==='Cardio')  add(d,'🏃');
+      else if(e.activityName==='Kineto')  add(d,'🤸');
+      else if(e.activityName==='Dancing') add(d,'💃');
+      else if(e.activityName==='Pilates') add(d,'🧘');
+    }
+  }
+
+  const today=new Date();
+  const todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+  const firstDay=new Date(calYear,calMonth,1);
+  const lastDay=new Date(calYear,calMonth+1,0);
+  const startDow=(firstDay.getDay()+6)%7; // Mon=0 … Sun=6
+
+  const DAY_HDRS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  let html=DAY_HDRS.map(h=>'<div class="cal-hdr">'+h+'</div>').join('');
+
+  // Padding from previous month
+  for(let i=0;i<startDow;i++){
+    const d=new Date(calYear,calMonth,1-(startDow-i));
+    html+='<div class="cal-day"><div class="cal-dn">'+d.getDate()+'</div></div>';
+  }
+
+  // Current month days
+  for(let day=1;day<=lastDay.getDate();day++){
+    const ds=calYear+'-'+String(calMonth+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    const isToday=ds===todayStr;
+    const icons=iconMap[ds]?[...iconMap[ds]].join(''):'';
+    html+='<div class="cal-day cur-month'+(isToday?' today':'')+'"><div class="cal-dn">'+day+'</div>'
+      +(icons?'<div class="cal-icons">'+icons+'</div>':'')
+      +'</div>';
+  }
+
+  // Padding to next month
+  const endDow=(lastDay.getDay()+6)%7;
+  const tail=endDow<6?6-endDow:0;
+  for(let i=1;i<=tail;i++){
+    html+='<div class="cal-day"><div class="cal-dn">'+i+'</div></div>';
+  }
+
+  grid.innerHTML='<div class="cal-grid">'+html+'</div>';
+}
+
 let actCharts={};
 let ACTIVITY = {};
 function renderActivity(){
+  renderCalendar();
   ACTIVITY = buildActivityData();
   const wrap=document.getElementById('activity-wrap');
   const weeks=getLast6Weeks();
