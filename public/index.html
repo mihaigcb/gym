@@ -616,7 +616,7 @@ function renderProgress(){
     '<div class="stat"><div class="stat-lbl">Peak volume</div><div class="stat-val">'+maxVol.toLocaleString()+'<span class="stat-unit"> kg</span></div></div>'
     +'<div class="stat"><div class="stat-lbl">Sessions</div><div class="stat-val">'+total+'</div></div>'
     +'<div class="stat"><div class="stat-lbl">Best weight</div><div class="stat-val">'+maxW+'<span class="stat-unit"> kg</span></div></div>';
-  const weekStart=dateStr=>{const d=new Date(dateStr);d.setDate(d.getDate()-d.getDay()+1);return d.toISOString().slice(0,10);};
+  const weekStart=dateStr=>{const p=dateStr.split(/[T ]/)[0].split('-');const d=new Date(+p[0],+p[1]-1,+p[2]);d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   if(progChart) progChart.destroy();
   const ctx=document.getElementById('prog-chart').getContext('2d');
   progChart=new Chart(ctx,{
@@ -665,7 +665,7 @@ function renderSummaryChart(){
   if(!canvas) return;
   if(sumChart) sumChart.destroy();
   const ctx=canvas.getContext('2d');
-  const weekStart=dateStr=>{const d=new Date(dateStr);d.setDate(d.getDate()-d.getDay()+1);return d.toISOString().slice(0,10);};
+  const weekStart=dateStr=>{const p=dateStr.split(/[T ]/)[0].split('-');const d=new Date(+p[0],+p[1]-1,+p[2]);d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   const xCb=function(v){return this.getLabelForValue(v);};
   const S=SUMMARY;
   const MIN_WIN=6;
@@ -779,7 +779,7 @@ function renderLog(){
   if(!LOG.length){el.innerHTML='<div class="empty">No entries yet</div>';return;}
 
   // Get Monday of the week for a date string
-  const weekKey=dateStr=>{const d=new Date(dateStr);const day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d.toISOString().slice(0,10);};
+  const weekKey=dateStr=>{const p=dateStr.split(/[T ]/)[0].split('-');const d=new Date(+p[0],+p[1]-1,+p[2]);d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   const fmtWeek=iso=>{const d=new Date(iso);return 'w/c '+d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});};
 
   // Group by week
