@@ -97,10 +97,10 @@ input[type=text]{flex:1;min-width:160px}
   <span class="hdr-sub">PPLUL &bull; 2024&ndash;2026</span>
 </div>
 <div class="tabs">
-  <button class="tab active" onclick="switchTab('history')">History</button>
-  <button class="tab" onclick="switchTab('activity')">Activity</button>
-  <button class="tab" onclick="switchTab('progress')">Progress</button>
   <button class="tab" onclick="switchTab('log')">Log workout</button>
+  <button class="tab" onclick="switchTab('progress')">Progress</button>
+  <button class="tab" onclick="switchTab('activity')">Activity</button>
+  <button class="tab active" onclick="switchTab('history')">History</button>
 </div>
 <div class="wrap">
   <div id="sec-history" class="sec active">
@@ -134,6 +134,9 @@ input[type=text]{flex:1;min-width:160px}
     <div class="chart-card">
       <div class="chart-inner" style="height:240px"><canvas id="prog-chart"></canvas></div>
       <div class="chart-sub" id="chart-sub"></div>
+      <div id="prog-slider-wrap" style="display:none;padding:8px 4px 2px">
+        <input id="prog-slider" type="range" min="0" max="0" value="0" style="width:100%;accent-color:#1a1a1a;cursor:pointer" oninput="renderProgress()">
+      </div>
     </div>
 
     <div style="border-top:1px solid #e5e3de;margin:8px 0 20px"></div>
@@ -146,6 +149,9 @@ input[type=text]{flex:1;min-width:160px}
     <div class="chart-card">
       <div class="chart-inner" style="height:260px"><canvas id="sum-chart"></canvas></div>
       <div class="chart-sub" id="sum-chart-sub">total sets per session</div>
+      <div id="sum-slider-wrap" style="display:none;padding:8px 4px 2px">
+        <input id="sum-slider" type="range" min="6" max="6" value="6" style="width:100%;accent-color:#1a1a1a;cursor:pointer" oninput="renderSummaryChart()">
+      </div>
     </div>
   </div>
   <div id="sec-log" class="sec">
@@ -326,7 +332,7 @@ function revertSession(ei, d){ /* no-op: DB is source of truth */ }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
 function switchTab(t){
-  document.querySelectorAll('.tab').forEach((b,i)=>b.classList.toggle('active',['history','activity','progress','log'][i]===t));
+  document.querySelectorAll('.tab').forEach((b,i)=>b.classList.toggle('active',['log','progress','activity','history'][i]===t));
   document.querySelectorAll('.sec').forEach(s=>s.classList.remove('active'));
   document.getElementById('sec-'+t).classList.add('active');
   if(t==='history') renderHistory();
@@ -367,17 +373,25 @@ function renderHistory(){
     return latestDate(b)-latestDate(a);
   });
   if(!exs.length){list.innerHTML='<div class="empty">No exercises found</div>';return;}
-  let lastGroup='', html='';
+  if(!window._groupOpen) window._groupOpen={};
+  let lastGroup='', html='', firstGroup=true;
   exs.forEach((ex,i)=>{
     const sessions=getMergedSessions(ex);
     const dates=Object.keys(sessions).sort((a,b)=>new Date(b)-new Date(a));
     if(ex.group!==lastGroup){
+      if(!firstGroup) html+='</div>';
+      firstGroup=false;
       lastGroup=ex.group;
       const gc=GROUP_COLORS[ex.group]||{bg:'#f1f5f9',color:'#475569'};
-      html+='<div style="display:flex;align-items:center;gap:8px;margin:18px 0 6px">'
+      const gid=ex.group.replace(/[^a-z0-9]/gi,'_');
+      const isOpen=window._groupOpen[ex.group]!==false;
+      const chevron=isOpen?'▼':'▶';
+      html+='<div style="display:flex;align-items:center;gap:8px;margin:18px 0 6px;cursor:pointer;user-select:none" onclick="toggleGroup(\''+ex.group+'\')">'
         +'<span style="font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 10px;border-radius:6px;background:'+gc.bg+';color:'+gc.color+'">'+ex.group.toUpperCase()+'</span>'
         +'<span style="flex:1;height:1px;background:#e5e3de"></span>'
-        +'</div>';
+        +'<span id="group-chev-'+gid+'" style="font-size:10px;color:#999">'+chevron+'</span>'
+        +'</div>'
+        +'<div id="group-body-'+gid+'" style="'+(isOpen?'':'display:none')+'">';
     }
     const chips=dates.map((d,j)=>{
       const s=sessions[d];
@@ -398,9 +412,21 @@ function renderHistory(){
       +'<button onclick="openAdd('+i+')" style="font-size:11px;padding:4px 10px;border:1px dashed #ccc;border-radius:6px;background:none;color:#888;cursor:pointer">+ add session</button>'
       +'</div></div></div>';
   });
+  if(!firstGroup) html+='</div>';
   list.innerHTML=html;
   window._histExs=exs;
   window._chipDates=exs.map(ex=>Object.keys(getMergedSessions(ex)).sort((a,b)=>new Date(b)-new Date(a)));
+}
+
+function toggleGroup(groupName){
+  if(!window._groupOpen) window._groupOpen={};
+  const isOpen=window._groupOpen[groupName]!==false;
+  window._groupOpen[groupName]=!isOpen;
+  const gid=groupName.replace(/[^a-z0-9]/gi,'_');
+  const body=document.getElementById('group-body-'+gid);
+  const chev=document.getElementById('group-chev-'+gid);
+  if(body) body.style.display=isOpen?'none':'';
+  if(chev) chev.textContent=isOpen?'▶':'▼';
 }
 
 function toggleCard(i){
@@ -545,7 +571,9 @@ let progChart=null;
 
 function updateProgEx(){
   const group=document.getElementById('prog-sheet').value;
+  const getLatest=ex=>{const keys=Object.keys(getMergedSessions(ex));return keys.length?Math.max(...keys.map(d=>new Date(d))):-Infinity;};
   document.getElementById('prog-ex').innerHTML=GYM_EX.filter(e=>e.group===group)
+    .sort((a,b)=>getLatest(b)-getLatest(a))
     .map(ex=>'<option value="'+ex.name+'">'+ex.name+'</option>').join('');
   renderProgress();
 }
@@ -556,26 +584,44 @@ function renderProgress(){
   const ex=GYM_EX.find(e=>e.group===group && e.name===name);
   if(!ex) return;
   const cd=ex.chartData;
-  const vols=cd.map(p=>p.totalVol);
-  const weights=cd.map(p=>p.maxWeight);
-  const maxVol=vols.length?Math.max(...vols):0;
-  const maxW=weights.length?Math.max(...weights):0;
+  const MIN_WIN=6;
+  const total=cd.length;
+  const slider=document.getElementById('prog-slider');
+  const sliderWrap=document.getElementById('prog-slider-wrap');
+  if(total>MIN_WIN){
+    sliderWrap.style.display='';
+    slider.min=MIN_WIN;
+    slider.max=total;
+    // On first load for this exercise, default to 6 (most recent only)
+    if(slider.dataset.ex!==ex.name){ slider.value=MIN_WIN; slider.dataset.ex=ex.name; }
+  } else {
+    sliderWrap.style.display='none';
+    slider.dataset.ex=ex.name;
+  }
+  const windowSize=total>MIN_WIN ? (parseInt(slider.value)||MIN_WIN) : total;
+  const visible=cd.slice(total-windowSize);
+  const vols=visible.map(p=>p.totalVol);
+  const weights=visible.map(p=>p.maxWeight);
+  const allVols=cd.map(p=>p.totalVol);
+  const allWeights=cd.map(p=>p.maxWeight);
+  const maxVol=allVols.length?Math.max(...allVols):0;
+  const maxW=allWeights.length?Math.max(...allWeights):0;
   document.getElementById('prog-stats').innerHTML=
     '<div class="stat"><div class="stat-lbl">Peak volume</div><div class="stat-val">'+maxVol.toLocaleString()+'<span class="stat-unit"> kg</span></div></div>'
-    +'<div class="stat"><div class="stat-lbl">Sessions</div><div class="stat-val">'+cd.length+'</div></div>'
+    +'<div class="stat"><div class="stat-lbl">Sessions</div><div class="stat-val">'+total+'</div></div>'
     +'<div class="stat"><div class="stat-lbl">Best weight</div><div class="stat-val">'+maxW+'<span class="stat-unit"> kg</span></div></div>';
+  const weekStart=dateStr=>{const d=new Date(dateStr);d.setDate(d.getDate()-d.getDay()+1);return d.toISOString().slice(0,10);};
   if(progChart) progChart.destroy();
   const ctx=document.getElementById('prog-chart').getContext('2d');
-  const pts=cd.length>30?0:4;
   progChart=new Chart(ctx,{
     type:'line',
     data:{
-      labels:cd.map(p=>p.date),
+      labels:visible.map(p=>weekStart(p.date)),
       datasets:[
         {label:'Volume',yAxisID:'yVol',data:vols,borderColor:'#16a34a',borderWidth:2,
-         pointRadius:pts,pointBackgroundColor:'#16a34a',tension:0.1,fill:true,backgroundColor:'rgba(22,163,74,0.07)'},
+         pointRadius:4,pointBackgroundColor:'#16a34a',tension:0.1,fill:true,backgroundColor:'rgba(22,163,74,0.07)'},
         {label:'Max weight',yAxisID:'yWeight',data:weights,borderColor:'#2563eb',borderWidth:2,
-         pointRadius:pts,pointBackgroundColor:'#2563eb',tension:0.1,fill:false}
+         pointRadius:4,pointBackgroundColor:'#2563eb',tension:0.1,fill:false}
       ]
     },
     options:{
@@ -583,7 +629,7 @@ function renderProgress(){
       interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.dataset.label+': '+i.raw.toLocaleString()+' kg'}}},
       scales:{
-        x:{ticks:{maxTicksLimit:8,maxRotation:30,font:{size:10},callback:v=>v},grid:{display:false}},
+        x:{reverse:true,ticks:{maxTicksLimit:8,maxRotation:30,font:{size:10},callback:function(v){return this.getLabelForValue(v);}},grid:{display:false}},
         yVol:{type:'linear',position:'left',ticks:{font:{size:10},callback:v=>v.toLocaleString()+'kg'},grid:{color:'#f0eeeb'},
               title:{display:true,text:'Volume',font:{size:10},color:'#16a34a'}},
         yWeight:{type:'linear',position:'right',ticks:{font:{size:10},callback:v=>v+'kg'},grid:{drawOnChartArea:false},
@@ -613,26 +659,41 @@ function renderSummaryChart(){
   if(!canvas) return;
   if(sumChart) sumChart.destroy();
   const ctx=canvas.getContext('2d');
+  const weekStart=dateStr=>{const d=new Date(dateStr);d.setDate(d.getDate()-d.getDay()+1);return d.toISOString().slice(0,10);};
+  const xCb=function(v){return this.getLabelForValue(v);};
   const S=SUMMARY;
-  const labels=S.dates;
+  const MIN_WIN=6;
+  const total=S.dates.length;
+  const slider=document.getElementById('sum-slider');
+  const sliderWrap=document.getElementById('sum-slider-wrap');
+  if(total>MIN_WIN){
+    sliderWrap.style.display='';
+    slider.min=MIN_WIN; slider.max=total;
+    if(!slider.dataset.init){slider.value=MIN_WIN; slider.dataset.init='1';}
+  } else {
+    sliderWrap.style.display='none';
+  }
+  const windowSize=total>MIN_WIN?(parseInt(slider.value)||MIN_WIN):total;
+  const sliceData=arr=>arr.slice(total-windowSize);
+  const labels=sliceData(S.dates).map(weekStart);
   if(sumMetric==='sets'){
     document.getElementById('sum-chart-sub').textContent='total sets per session';
-    sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total sets',data:S.totalSets,backgroundColor:'#1a1a1a',borderRadius:3,borderSkipped:false}]},
+    sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total sets',data:sliceData(S.totalSets),backgroundColor:'#1a1a1a',borderRadius:3,borderSkipped:false}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.raw+' sets'}}},
-        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:v=>v},grid:{display:false}},y:{ticks:{font:{size:9}},grid:{color:'#f0eeeb'},min:0}}}});
+        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false},reverse:true},y:{ticks:{font:{size:9}},grid:{color:'#f0eeeb'},min:0}}}});
   } else if(sumMetric==='vol'){
     document.getElementById('sum-chart-sub').textContent='total volume per session';
-    sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total volume',data:S.totalVol,backgroundColor:'#16a34a',borderRadius:3,borderSkipped:false}]},
+    sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total volume',data:sliceData(S.totalVol),backgroundColor:'#16a34a',borderRadius:3,borderSkipped:false}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.raw.toLocaleString()+' kg'}}},
-        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:v=>v},grid:{display:false}},y:{ticks:{font:{size:9},callback:v=>v.toLocaleString()+'kg'},grid:{color:'#f0eeeb'},min:0}}}});
+        scales:{x:{reverse:true,ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false}},y:{ticks:{font:{size:9},callback:v=>v.toLocaleString()+'kg'},grid:{color:'#f0eeeb'},min:0}}}});
   } else {
     document.getElementById('sum-chart-sub').textContent='sets per session by muscle group';
-    const datasets=S.groups.map(g=>({label:g,data:S.sets[g],backgroundColor:S.groupColors[g],stack:'sets',borderRadius:2,borderSkipped:false}));
+    const datasets=S.groups.map(g=>({label:g,data:sliceData(S.sets[g]),backgroundColor:S.groupColors[g],stack:'sets',borderRadius:2,borderSkipped:false}));
     sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets},
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:true,position:'bottom',labels:{boxWidth:10,boxHeight:10,font:{size:10},padding:8}},
                  tooltip:{mode:'index',callbacks:{label:i=>i.dataset.label+': '+i.raw+' sets'}}},
-        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:v=>v},grid:{display:false},stacked:true},
+        scales:{x:{reverse:true,ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false},stacked:true},
                 y:{ticks:{font:{size:9}},grid:{color:'#f0eeeb'},min:0,stacked:true}}}});
   }
 }
