@@ -766,18 +766,18 @@ function prefillSets(){
   const ex=GYM_EX.find(e=>e.group===group&&e.name===name);
   const setsEl=document.getElementById('log-sets');
   const prev=document.getElementById('log-sets-prev');
-  if(!ex){ setsEl.value=''; prev.value=''; syncSetHeights(); return; }
+  if(!ex){ prev.value=''; syncSetHeights(); return; }
   const dates=Object.keys(ex.sessions).sort((a,b)=>new Date(b)-new Date(a));
   if(!dates.length){ prev.value=''; syncSetHeights(); return; }
-  const raw=ex.sessions[dates[0]].d.split('\n').map(l=>l.replace(/\s*\(\d+kg\)$/,'')).join('\n');
-  setsEl.value=raw;
   prev.value=ex.sessions[dates[0]].d;
   requestAnimationFrame(syncSetHeights);
 }
 
 function updateLogEx(){
   const group=document.getElementById('log-sheet').value;
+  const getLatest=ex=>{const keys=Object.keys(ex.sessions);return keys.length?Math.max(...keys.map(d=>new Date(d))):-Infinity;};
   document.getElementById('log-ex').innerHTML=GYM_EX.filter(e=>e.group===group)
+    .sort((a,b)=>getLatest(b)-getLatest(a))
     .map(ex=>'<option>'+ex.name+'</option>').join('');
   prefillSets();
 }
@@ -943,42 +943,61 @@ function setWithingsMetric(m){
 function renderWithingsChart(){
   const valid=withingsData.filter(d=>d[withingsMetric]!=null);
   if(!valid.length) return;
+
+  // Aggregate by week (Monday as first day), compute average per week
+  const toMonday=dateStr=>{const p=dateStr.split('-');const d=new Date(+p[0],+p[1]-1,+p[2]);d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  const fmtDate=iso=>{const p=iso.split('-');const d=new Date(+p[0],+p[1]-1,+p[2]);return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'});};
+  const byWeek=new Map();
+  for(const d of valid){
+    const wk=toMonday(d.date);
+    if(!byWeek.has(wk)) byWeek.set(wk,[]);
+    byWeek.get(wk).push(d[withingsMetric]);
+  }
+  const weeks=[...byWeek.keys()].sort();
+  const weeklyData=weeks.map(wk=>{const vals=byWeek.get(wk);return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);});
+
   const MIN_WIN=12;
-  const total=valid.length;
+  const total=weeks.length;
   const slider=document.getElementById('withings-slider');
   const sliderWrap=document.getElementById('withings-slider-wrap');
   if(total>MIN_WIN){
     sliderWrap.style.display='';
     slider.min=MIN_WIN; slider.max=total;
-    if(!slider.dataset.init){slider.value=MIN_WIN; slider.dataset.init='1';}
+    if(!slider.dataset.metric||slider.dataset.metric!==withingsMetric){slider.value=MIN_WIN;slider.dataset.metric=withingsMetric;}
   } else {
     sliderWrap.style.display='none';
   }
   const windowSize=total>MIN_WIN?(parseInt(slider.value)||MIN_WIN):total;
-  const visible=valid.slice(total-windowSize);
+  const visibleWeeks=weeks.slice(total-windowSize);
+  const visibleData=weeklyData.slice(total-windowSize);
+
   const color=WITHINGS_COLORS[withingsMetric];
-  document.getElementById('withings-chart-sub').textContent=WITHINGS_LABELS[withingsMetric];
+  const unit=withingsMetric==='fat_ratio'?'%':'kg';
+  document.getElementById('withings-chart-sub').textContent=WITHINGS_LABELS[withingsMetric]+' — weekly average';
   if(withingsChart) withingsChart.destroy();
   const ctx=document.getElementById('withings-chart').getContext('2d');
   withingsChart=new Chart(ctx,{
     type:'line',
     data:{
-      labels:visible.map(d=>d.date),
+      labels:visibleWeeks.map(fmtDate),
       datasets:[{
         label:WITHINGS_LABELS[withingsMetric],
-        data:visible.map(d=>d[withingsMetric]),
+        data:visibleData,
         borderColor:color, borderWidth:2,
         pointRadius:3, pointBackgroundColor:color,
         tension:0.2, fill:true,
-        backgroundColor:color.replace(')',',0.07)').replace('rgb','rgba')
+        backgroundColor:color+'22'
       }]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}, tooltip:{callbacks:{label:i=>i.raw+' '+(withingsMetric==='fat_ratio'?'%':'kg')}}},
+      plugins:{legend:{display:false}, tooltip:{callbacks:{
+        title:i=>'w/c '+i[0].label,
+        label:i=>i.raw+unit+' (weekly avg)'
+      }}},
       scales:{
         x:{ticks:{maxTicksLimit:8,maxRotation:30,font:{size:10}}, grid:{display:false}},
-        y:{ticks:{font:{size:10},callback:v=>v+(withingsMetric==='fat_ratio'?'%':'kg')}, grid:{color:'#f0eeeb'}}
+        y:{ticks:{font:{size:10},callback:v=>v+unit}, grid:{color:'#f0eeeb'}}
       }
     }
   });
