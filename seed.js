@@ -39,9 +39,13 @@ function parseCSV(content) {
 }
 
 function parseDate(dateStr) {
-  const d = new Date(dateStr);
-  if (isNaN(d)) return dateStr;
-  return d.toISOString().slice(0, 10);
+  // Parse without timezone conversion to avoid off-by-one day in UTC+ zones
+  const m = dateStr.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+  if (m) {
+    const months = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+    return `${m[3]}-${months[m[2]]}-${String(m[1]).padStart(2,'0')}`;
+  }
+  return dateStr;
 }
 
 function computeStats(setsRaw) {

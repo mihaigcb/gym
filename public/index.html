@@ -135,7 +135,7 @@ input[type=text]{flex:1;min-width:160px}
       <div class="chart-inner" style="height:240px"><canvas id="prog-chart"></canvas></div>
       <div class="chart-sub" id="chart-sub"></div>
       <div id="prog-slider-wrap" style="display:none;padding:8px 4px 2px">
-        <input id="prog-slider" type="range" min="0" max="0" value="0" style="width:100%;accent-color:#1a1a1a;cursor:pointer" oninput="renderProgress()">
+        <input id="prog-slider" type="range" min="0" max="0" value="0" style="width:100%;accent-color:#1a1a1a;cursor:pointer;transform:scaleX(-1)" oninput="renderProgress()">
       </div>
     </div>
 
@@ -150,7 +150,7 @@ input[type=text]{flex:1;min-width:160px}
       <div class="chart-inner" style="height:260px"><canvas id="sum-chart"></canvas></div>
       <div class="chart-sub" id="sum-chart-sub">total sets per session</div>
       <div id="sum-slider-wrap" style="display:none;padding:8px 4px 2px">
-        <input id="sum-slider" type="range" min="6" max="6" value="6" style="width:100%;accent-color:#1a1a1a;cursor:pointer" oninput="renderSummaryChart()">
+        <input id="sum-slider" type="range" min="6" max="6" value="6" style="width:100%;accent-color:#1a1a1a;cursor:pointer;transform:scaleX(-1)" oninput="renderSummaryChart()">
       </div>
     </div>
   </div>
@@ -184,9 +184,15 @@ input[type=text]{flex:1;min-width:160px}
           </select>
         </div>
       </div>
-      <div id="log-sets-wrap" class="fg" style="margin-bottom:12px">
-        <label>SETS &mdash; one per line, e.g. 80x5</label>
-        <textarea id="log-sets" placeholder="80x5&#10;80x5&#10;77.5x5"></textarea>
+      <div id="log-sets-wrap" style="margin-bottom:12px;display:flex;gap:10px">
+        <div class="fg" style="flex:1">
+          <label>SETS &mdash; one per line, e.g. 80x5</label>
+          <textarea id="log-sets" placeholder="80x5&#10;80x5&#10;77.5x5" style="overflow:hidden" oninput="autoResize(this)"></textarea>
+        </div>
+        <div class="fg" style="flex:1">
+          <label>LAST SESSION</label>
+          <textarea id="log-sets-prev" readonly placeholder="No previous entry" style="background:#f7f6f3;color:#888;resize:none;overflow:hidden"></textarea>
+        </div>
       </div>
       <div id="log-count-wrap" style="display:none;margin-bottom:12px">
         <div class="fg"><label>NUMBER OF SESSIONS</label>
@@ -629,7 +635,7 @@ function renderProgress(){
       interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.dataset.label+': '+i.raw.toLocaleString()+' kg'}}},
       scales:{
-        x:{reverse:true,ticks:{maxTicksLimit:8,maxRotation:30,font:{size:10},callback:function(v){return this.getLabelForValue(v);}},grid:{display:false}},
+        x:{ticks:{maxTicksLimit:8,maxRotation:30,font:{size:10},callback:function(v){return this.getLabelForValue(v);}},grid:{display:false}},
         yVol:{type:'linear',position:'left',ticks:{font:{size:10},callback:v=>v.toLocaleString()+'kg'},grid:{color:'#f0eeeb'},
               title:{display:true,text:'Volume',font:{size:10},color:'#16a34a'}},
         yWeight:{type:'linear',position:'right',ticks:{font:{size:10},callback:v=>v+'kg'},grid:{drawOnChartArea:false},
@@ -680,12 +686,12 @@ function renderSummaryChart(){
     document.getElementById('sum-chart-sub').textContent='total sets per session';
     sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total sets',data:sliceData(S.totalSets),backgroundColor:'#1a1a1a',borderRadius:3,borderSkipped:false}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.raw+' sets'}}},
-        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false},reverse:true},y:{ticks:{font:{size:9}},grid:{color:'#f0eeeb'},min:0}}}});
+        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false}},y:{ticks:{font:{size:9}},grid:{color:'#f0eeeb'},min:0}}}});
   } else if(sumMetric==='vol'){
     document.getElementById('sum-chart-sub').textContent='total volume per session';
     sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total volume',data:sliceData(S.totalVol),backgroundColor:'#16a34a',borderRadius:3,borderSkipped:false}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.raw.toLocaleString()+' kg'}}},
-        scales:{x:{reverse:true,ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false}},y:{ticks:{font:{size:9},callback:v=>v.toLocaleString()+'kg'},grid:{color:'#f0eeeb'},min:0}}}});
+        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false}},y:{ticks:{font:{size:9},callback:v=>v.toLocaleString()+'kg'},grid:{color:'#f0eeeb'},min:0}}}});
   } else {
     document.getElementById('sum-chart-sub').textContent='sets per session by muscle group';
     const datasets=S.groups.map(g=>({label:g,data:sliceData(S.sets[g]),backgroundColor:S.groupColors[g],stack:'sets',borderRadius:2,borderSkipped:false}));
@@ -693,7 +699,7 @@ function renderSummaryChart(){
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:true,position:'bottom',labels:{boxWidth:10,boxHeight:10,font:{size:10},padding:8}},
                  tooltip:{mode:'index',callbacks:{label:i=>i.dataset.label+': '+i.raw+' sets'}}},
-        scales:{x:{reverse:true,ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false},stacked:true},
+        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false},stacked:true},
                 y:{ticks:{font:{size:9}},grid:{color:'#f0eeeb'},min:0,stacked:true}}}});
   }
 }
@@ -703,20 +709,26 @@ function updateLogType(){
   const t=document.getElementById('log-type').value;
   document.getElementById('log-ex-wrap').style.display=t==='exercise'?'':'none';
   document.getElementById('log-activity-wrap').style.display=t==='activity'?'':'none';
-  document.getElementById('log-sets-wrap').style.display=t==='exercise'?'':'none';
+  document.getElementById('log-sets-wrap').style.display=t==='exercise'?'flex':'none';
   document.getElementById('log-count-wrap').style.display=t==='activity'?'':'none';
   if(t==='exercise') updateLogEx();
 }
 
+function autoResize(el){el.style.height='auto';el.style.height=(el.scrollHeight+2)+'px';}
 function prefillSets(){
   const group=document.getElementById('log-sheet').value;
   const name=document.getElementById('log-ex').value;
   const ex=GYM_EX.find(e=>e.group===group&&e.name===name);
-  if(!ex) return;
+  const setsEl=document.getElementById('log-sets');
+  const prev=document.getElementById('log-sets-prev');
+  if(!ex){ setsEl.value=''; prev.value=''; autoResize(setsEl); autoResize(prev); return; }
   const dates=Object.keys(ex.sessions).sort((a,b)=>new Date(b)-new Date(a));
-  if(!dates.length) return;
+  if(!dates.length){ prev.value=''; autoResize(prev); return; }
   const raw=ex.sessions[dates[0]].d.split('\n').map(l=>l.replace(/\s*\(\d+kg\)$/,'')).join('\n');
-  document.getElementById('log-sets').value=raw;
+  setsEl.value=raw;
+  prev.value=ex.sessions[dates[0]].d;
+  autoResize(setsEl);
+  autoResize(prev);
 }
 
 function updateLogEx(){
@@ -765,16 +777,48 @@ async function delEntry(id, type){
 function renderLog(){
   const el=document.getElementById('elist');
   if(!LOG.length){el.innerHTML='<div class="empty">No entries yet</div>';return;}
-  el.innerHTML=LOG.map(e=>{
-    const isEx=e.type==='exercise'||!e.type;
-    const meta=isEx?(e.group+' &bull; '+e.date):(e.activityName+' &bull; '+e.date);
-    const name=isEx?e.name:(e.count+' session'+(e.count!==1?'s':''));
-    const detail=isEx?('<div class="esets">'+e.sets+'</div>'):'';
-    return '<div class="ecard"><div class="em">'
-      +'<div class="emeta">'+meta+'</div>'
-      +'<div class="en">'+name+'</div>'+detail+'</div>'
-      +'<button class="del" onclick="delEntry('+e.id+',\''+e.type+'\')" title="Delete">&times;</button></div>';
-  }).join('');
+
+  // Get Monday of the week for a date string
+  const weekKey=dateStr=>{const d=new Date(dateStr);const day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d.toISOString().slice(0,10);};
+  const fmtWeek=iso=>{const d=new Date(iso);return 'w/c '+d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});};
+
+  // Group by week
+  const byWeek=new Map();
+  for(const e of LOG){
+    const wk=weekKey(e.date);
+    if(!byWeek.has(wk)) byWeek.set(wk,[]);
+    byWeek.get(wk).push(e);
+  }
+  const sortedWeeks=[...byWeek.keys()].sort((a,b)=>b.localeCompare(a));
+
+  let html='';
+  for(const wk of sortedWeeks){
+    const entries=byWeek.get(wk);
+    html+='<div style="margin-bottom:4px;font-size:11px;font-weight:700;color:#aaa;letter-spacing:.06em;padding:6px 2px 2px">'+fmtWeek(wk).toUpperCase()+'</div>';
+
+    // Group by muscle group within the week
+    const byGroup=new Map();
+    for(const e of entries){
+      const grp=e.type==='exercise'?(e.group||'Exercise'):'Activity';
+      if(!byGroup.has(grp)) byGroup.set(grp,[]);
+      byGroup.get(grp).push(e);
+    }
+
+    for(const [grp,grpEntries] of byGroup){
+      html+='<div style="font-size:10px;font-weight:600;color:#bbb;letter-spacing:.05em;padding:4px 2px 2px;text-transform:uppercase">'+grp+'</div>';
+      for(const e of grpEntries){
+        const isEx=e.type==='exercise'||!e.type;
+        const name=isEx?e.name:(e.count+' session'+(e.count!==1?'s':''));
+        const meta=isEx?e.date:(e.activityName+' &bull; '+e.date);
+        const detail=isEx?('<div class="esets">'+e.sets+'</div>'):'';
+        html+='<div class="ecard"><div class="em">'
+          +'<div class="emeta">'+meta+'</div>'
+          +'<div class="en">'+name+'</div>'+detail+'</div>'
+          +'<button class="del" onclick="delEntry('+e.id+',\''+e.type+'\')" title="Delete">&times;</button></div>';
+      }
+    }
+  }
+  el.innerHTML=html;
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
