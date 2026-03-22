@@ -107,13 +107,13 @@ input[type=text]{flex:1;min-width:160px}
   <span class="hdr-sub">PPLUL &bull; 2024&ndash;2026</span>
 </div>
 <div class="tabs">
-  <button class="tab" onclick="switchTab('log')">Log workout</button>
+  <button class="tab active" onclick="switchTab('log')">Log workout</button>
   <button class="tab" onclick="switchTab('progress')">Progress</button>
   <button class="tab" onclick="switchTab('activity')">Activity</button>
-  <button class="tab active" onclick="switchTab('history')">History</button>
+  <button class="tab" onclick="switchTab('history')">History</button>
 </div>
 <div class="wrap">
-  <div id="sec-history" class="sec active">
+  <div id="sec-history" class="sec">
     <div class="row">
       <input type="text" id="search" placeholder="Search exercises..." oninput="renderHistory()">
       <select id="sheet-f" onchange="renderHistory()">
@@ -164,7 +164,7 @@ input[type=text]{flex:1;min-width:160px}
       </div>
     </div>
   </div>
-  <div id="sec-log" class="sec">
+  <div id="sec-log" class="sec active">
     <div class="log-form">
       <div class="fgrid" style="margin-bottom:12px">
         <div class="fg"><label>TYPE</label>
@@ -631,7 +631,7 @@ function renderProgress(){
     '<div class="stat"><div class="stat-lbl">Peak volume</div><div class="stat-val">'+maxVol.toLocaleString()+'<span class="stat-unit"> kg</span></div></div>'
     +'<div class="stat"><div class="stat-lbl">Sessions</div><div class="stat-val">'+total+'</div></div>'
     +'<div class="stat"><div class="stat-lbl">Best weight</div><div class="stat-val">'+maxW+'<span class="stat-unit"> kg</span></div></div>';
-  const weekStart=dateStr=>{const p=dateStr.split(/[T ]/)[0].split('-');const d=new Date(+p[0],+p[1]-1,+p[2]);d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  const weekStart=dateStr=>{const MONTHS={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};let d;const iso=dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);const disp=dateStr.match(/^(\d{1,2})\s+(\w+)\s+(\d{4})/);if(iso){d=new Date(+iso[1],+iso[2]-1,+iso[3]);}else if(disp){d=new Date(+disp[3],MONTHS[disp[2]],+disp[1]);}else{d=new Date(dateStr);}d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   if(progChart) progChart.destroy();
   const ctx=document.getElementById('prog-chart').getContext('2d');
   progChart=new Chart(ctx,{
@@ -680,7 +680,7 @@ function renderSummaryChart(){
   if(!canvas) return;
   if(sumChart) sumChart.destroy();
   const ctx=canvas.getContext('2d');
-  const weekStart=dateStr=>{const p=dateStr.split(/[T ]/)[0].split('-');const d=new Date(+p[0],+p[1]-1,+p[2]);d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  const weekStart=dateStr=>{const MONTHS={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};let d;const iso=dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);const disp=dateStr.match(/^(\d{1,2})\s+(\w+)\s+(\d{4})/);if(iso){d=new Date(+iso[1],+iso[2]-1,+iso[3]);}else if(disp){d=new Date(+disp[3],MONTHS[disp[2]],+disp[1]);}else{d=new Date(dateStr);}d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   const xCb=function(v){return this.getLabelForValue(v);};
   const S=SUMMARY;
   const MIN_WIN=6;
