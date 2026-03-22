@@ -187,7 +187,7 @@ input[type=text]{flex:1;min-width:160px}
       <div id="log-sets-wrap" style="margin-bottom:12px;display:flex;gap:10px">
         <div class="fg" style="flex:1">
           <label>SETS &mdash; one per line, e.g. 80x5</label>
-          <textarea id="log-sets" placeholder="80x5&#10;80x5&#10;77.5x5" style="overflow:hidden" oninput="autoResize(this)"></textarea>
+          <textarea id="log-sets" placeholder="80x5&#10;80x5&#10;77.5x5" style="overflow:hidden" oninput="syncSetHeights()"></textarea>
         </div>
         <div class="fg" style="flex:1">
           <label>LAST SESSION</label>
@@ -714,21 +714,26 @@ function updateLogType(){
   if(t==='exercise') updateLogEx();
 }
 
-function autoResize(el){el.style.height='auto';el.style.height=(el.scrollHeight+2)+'px';}
+function syncSetHeights(){
+  const setsEl=document.getElementById('log-sets');
+  const prev=document.getElementById('log-sets-prev');
+  setsEl.style.height='auto'; prev.style.height='auto';
+  const h=Math.max(setsEl.scrollHeight, prev.scrollHeight, 70)+2;
+  setsEl.style.height=h+'px'; prev.style.height=h+'px';
+}
 function prefillSets(){
   const group=document.getElementById('log-sheet').value;
   const name=document.getElementById('log-ex').value;
   const ex=GYM_EX.find(e=>e.group===group&&e.name===name);
   const setsEl=document.getElementById('log-sets');
   const prev=document.getElementById('log-sets-prev');
-  if(!ex){ setsEl.value=''; prev.value=''; autoResize(setsEl); autoResize(prev); return; }
+  if(!ex){ setsEl.value=''; prev.value=''; syncSetHeights(); return; }
   const dates=Object.keys(ex.sessions).sort((a,b)=>new Date(b)-new Date(a));
-  if(!dates.length){ prev.value=''; autoResize(prev); return; }
+  if(!dates.length){ prev.value=''; syncSetHeights(); return; }
   const raw=ex.sessions[dates[0]].d.split('\n').map(l=>l.replace(/\s*\(\d+kg\)$/,'')).join('\n');
   setsEl.value=raw;
   prev.value=ex.sessions[dates[0]].d;
-  autoResize(setsEl);
-  autoResize(prev);
+  requestAnimationFrame(syncSetHeights);
 }
 
 function updateLogEx(){
