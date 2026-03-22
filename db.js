@@ -1,40 +1,37 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 
-const db = new Database(path.join(__dirname, 'gym_journal.db'));
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
 
-// Drop and recreate tables if schema is outdated (detected by missing total_volume column)
-const existingCols = db.prepare("PRAGMA table_info(exercises)").all().map(c => c.name);
-if (existingCols.length && !existingCols.includes('total_volume')) {
-  db.exec(`DROP TABLE IF EXISTS exercises; DROP TABLE IF EXISTS workouts; DROP TABLE IF EXISTS activity_log;`);
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workouts (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS exercises (
+      id SERIAL PRIMARY KEY,
+      workout_id INTEGER NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+      group_name TEXT NOT NULL,
+      name TEXT NOT NULL,
+      sets_raw TEXT NOT NULL,
+      total_volume REAL DEFAULT 0,
+      max_weight REAL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      activity_name TEXT NOT NULL,
+      count INTEGER DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS workouts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    name TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS exercises (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    workout_id INTEGER NOT NULL,
-    group_name TEXT NOT NULL,
-    name TEXT NOT NULL,
-    sets_raw TEXT NOT NULL,
-    total_volume REAL DEFAULT 0,
-    max_weight REAL DEFAULT 0,
-    FOREIGN KEY (workout_id) REFERENCES workouts(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS activity_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    activity_name TEXT NOT NULL,
-    count INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-module.exports = db;
+module.exports = { pool, initDB };

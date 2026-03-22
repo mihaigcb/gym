@@ -1,4 +1,4 @@
-const db = require('./db');
+const { pool, initDB } = require('./db');
 const fs = require('fs');
 
 function parseCSV(content) {
@@ -38,7 +38,6 @@ function parseCSV(content) {
   return rows;
 }
 
-// "17 Mar 2025" → "2025-03-17"
 function parseDate(dateStr) {
   const d = new Date(dateStr);
   if (isNaN(d)) return dateStr;
@@ -59,56 +58,58 @@ function computeStats(setsRaw) {
   return { totalVol, maxWeight };
 }
 
-// Skip seeding if data already exists
-const existing = db.prepare('SELECT COUNT(*) as count FROM workouts').get();
-if (existing.count > 0) {
-  console.log(`Database already has ${existing.count} workouts, skipping seed.`);
-  process.exit(0);
-}
+async function main() {
+  await initDB();
 
-const content = fs.readFileSync('./gym_journal_export.csv', 'utf-8');
-const rows = parseCSV(content);
-
-// Group by date
-const byDate = {};
-for (const [date, group, exercise, setsStr, , maxWeightCol] of rows) {
-  const iso = parseDate(date);
-  if (!byDate[iso]) byDate[iso] = { groups: new Set(), exercises: [] };
-  byDate[iso].groups.add(group);
-  byDate[iso].exercises.push({
-    name: exercise,
-    group,
-    sets_raw: setsStr,  // keep original newline-separated format
-  });
-}
-
-// Clear existing data
-db.prepare('DELETE FROM exercises').run();
-db.prepare('DELETE FROM workouts').run();
-db.prepare('DELETE FROM activity_log').run();
-try { db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('workouts','exercises','activity_log')").run(); } catch(e) {}
-
-const insertWorkout = db.prepare('INSERT INTO workouts (date, name) VALUES (?, ?)');
-const insertExercise = db.prepare(
-  'INSERT INTO exercises (workout_id, group_name, name, sets_raw, total_volume, max_weight) VALUES (?, ?, ?, ?, ?, ?)'
-);
-
-let workoutCount = 0, exerciseCount = 0;
-
-const insertAll = db.transaction(() => {
-  for (const [date, data] of Object.entries(byDate).sort()) {
-    const workoutName = [...data.groups].join(' + ');
-    const result = insertWorkout.run(date, workoutName);
-    const workoutId = result.lastInsertRowid;
-    workoutCount++;
-
-    for (const ex of data.exercises) {
-      const { totalVol, maxWeight } = computeStats(ex.sets_raw);
-      insertExercise.run(workoutId, ex.group, ex.name, ex.sets_raw, totalVol, maxWeight);
-      exerciseCount++;
-    }
+  const existing = (await pool.query('SELECT COUNT(*) as count FROM workouts')).rows[0];
+  if (parseInt(existing.count) > 0) {
+    console.log(`Database already has ${existing.count} workouts, skipping seed.`);
+    await pool.end();
+    return;
   }
-});
 
-insertAll();
-console.log(`Seeded ${workoutCount} workouts and ${exerciseCount} exercises.`);
+  const content = fs.readFileSync('./gym_journal_export.csv', 'utf-8');
+  const rows = parseCSV(content);
+
+  const byDate = {};
+  for (const [date, group, exercise, setsStr] of rows) {
+    const iso = parseDate(date);
+    if (!byDate[iso]) byDate[iso] = { groups: new Set(), exercises: [] };
+    byDate[iso].groups.add(group);
+    byDate[iso].exercises.push({ name: exercise, group, sets_raw: setsStr });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let workoutCount = 0, exerciseCount = 0;
+    for (const [date, data] of Object.entries(byDate).sort()) {
+      const workoutName = [...data.groups].join(' + ');
+      const wRes = await client.query(
+        'INSERT INTO workouts (date, name) VALUES ($1, $2) RETURNING id',
+        [date, workoutName]
+      );
+      const workoutId = wRes.rows[0].id;
+      workoutCount++;
+      for (const ex of data.exercises) {
+        const { totalVol, maxWeight } = computeStats(ex.sets_raw);
+        await client.query(
+          'INSERT INTO exercises (workout_id, group_name, name, sets_raw, total_volume, max_weight) VALUES ($1, $2, $3, $4, $5, $6)',
+          [workoutId, ex.group, ex.name, ex.sets_raw, totalVol, maxWeight]
+        );
+        exerciseCount++;
+      }
+    }
+    await client.query('COMMIT');
+    console.log(`Seeded ${workoutCount} workouts and ${exerciseCount} exercises.`);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('Seed failed:', e.message);
+    process.exit(1);
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
+main();

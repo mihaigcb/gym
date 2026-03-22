@@ -1,5 +1,5 @@
 const express = require('express');
-const db = require('./db');
+const { pool, initDB } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,24 +56,22 @@ function invalidateCache() { _cache = null; }
 
 // ── build data ────────────────────────────────────────────────────────────────
 
-function buildGymData() {
+async function buildGymData() {
   if (_cache) return _cache;
 
-  const rows = db.prepare(`
+  const { rows } = await pool.query(`
     SELECT e.id, e.group_name, e.name, e.sets_raw, e.total_volume, e.max_weight, w.date
     FROM exercises e
     JOIN workouts w ON w.id = e.workout_id
     ORDER BY w.date ASC, e.id ASC
-  `).all();
+  `);
 
-  // Pre-compute display dates and build a lookup map: "name\0date" → row
   const lookup = new Map();
   for (const row of rows) {
     row._display = isoToDisplay(row.date);
     lookup.set(row.name + '\0' + row._display, row);
   }
 
-  // Build GYM_EX
   const exMap = new Map();
   for (const row of rows) {
     if (!exMap.has(row.name)) {
@@ -91,12 +89,11 @@ function buildGymData() {
     chartData: Object.keys(ex.sessions)
       .sort((a, b) => new Date(a) - new Date(b))
       .map(date => {
-        const row = lookup.get(ex.name + '\0' + date);
-        return { date, totalVol: ex.sessions[date].v, maxWeight: row?.max_weight || 0 };
+        const r = lookup.get(ex.name + '\0' + date);
+        return { date, totalVol: ex.sessions[date].v, maxWeight: r?.max_weight || 0 };
       })
   }));
 
-  // Build SUMMARY — group rows by date using a Map
   const byDate = new Map();
   for (const row of rows) {
     if (!byDate.has(row.date)) byDate.set(row.date, []);
@@ -130,17 +127,16 @@ function buildGymData() {
 
   const summary = { dates: displayDates, groups: GROUPS, groupColors: GROUP_COLORS, sets, vol, totalSets, totalVol };
 
-  // Log entries
-  const logRows = db.prepare(`
+  const logResult = await pool.query(`
     SELECT e.id, e.group_name, e.name, e.sets_raw, w.date
     FROM exercises e JOIN workouts w ON w.id = e.workout_id
     ORDER BY e.id DESC LIMIT 200
-  `).all();
-  const logActivities = db.prepare('SELECT * FROM activity_log ORDER BY id DESC LIMIT 100').all();
+  `);
+  const actResult = await pool.query('SELECT * FROM activity_log ORDER BY id DESC LIMIT 100');
 
   const log = [
-    ...logRows.map(r => ({ id: r.id, type: 'exercise', group: r.group_name, name: r.name, date: r.date, sets: r.sets_raw })),
-    ...logActivities.map(a => ({ id: a.id, type: 'activity', activityName: a.activity_name, date: a.date, count: a.count }))
+    ...logResult.rows.map(r => ({ id: r.id, type: 'exercise', group: r.group_name, name: r.name, date: r.date, sets: r.sets_raw })),
+    ...actResult.rows.map(a => ({ id: a.id, type: 'activity', activityName: a.activity_name, date: a.date, count: a.count }))
   ].sort((a, b) => b.id - a.id);
 
   _cache = { gymEx, summary, log };
@@ -149,58 +145,94 @@ function buildGymData() {
 
 // ── routes ────────────────────────────────────────────────────────────────────
 
-app.get('/api/data', (req, res) => res.json(buildGymData()));
+app.get('/api/data', async (req, res) => {
+  try {
+    res.json(await buildGymData());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-app.post('/api/exercises', (req, res) => {
+app.post('/api/exercises', async (req, res) => {
   const { date, groupName, name, setsRaw } = req.body;
   if (!date || !groupName || !name || !setsRaw) return res.status(400).json({ error: 'Missing fields' });
   const isoDate = date.includes('-') ? date : displayToIso(date);
   const { totalVol, maxWeight } = computeStats(setsRaw);
-  let workout = db.prepare('SELECT id FROM workouts WHERE date = ?').get(isoDate);
-  if (!workout) {
-    const r = db.prepare('INSERT INTO workouts (date, name) VALUES (?, ?)').run(isoDate, groupName);
-    workout = { id: r.lastInsertRowid };
+  try {
+    let workout = (await pool.query('SELECT id FROM workouts WHERE date = $1', [isoDate])).rows[0];
+    if (!workout) {
+      const r = await pool.query('INSERT INTO workouts (date, name) VALUES ($1, $2) RETURNING id', [isoDate, groupName]);
+      workout = r.rows[0];
+    }
+    const result = await pool.query(
+      'INSERT INTO exercises (workout_id, group_name, name, sets_raw, total_volume, max_weight) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [workout.id, groupName, name, setsRaw, totalVol, maxWeight]
+    );
+    invalidateCache();
+    res.status(201).json({ id: result.rows[0].id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-  const result = db.prepare(
-    'INSERT INTO exercises (workout_id, group_name, name, sets_raw, total_volume, max_weight) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(workout.id, groupName, name, setsRaw, totalVol, maxWeight);
-  invalidateCache();
-  res.status(201).json({ id: result.lastInsertRowid });
 });
 
-app.put('/api/exercises/:id', (req, res) => {
+app.put('/api/exercises/:id', async (req, res) => {
   const { setsRaw } = req.body;
   if (!setsRaw) return res.status(400).json({ error: 'Missing setsRaw' });
   const { totalVol, maxWeight } = computeStats(setsRaw);
-  const r = db.prepare('UPDATE exercises SET sets_raw=?, total_volume=?, max_weight=? WHERE id=?')
-    .run(setsRaw, totalVol, maxWeight, req.params.id);
-  if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
-  invalidateCache();
-  res.json({ updated: true });
+  try {
+    const r = await pool.query(
+      'UPDATE exercises SET sets_raw=$1, total_volume=$2, max_weight=$3 WHERE id=$4',
+      [setsRaw, totalVol, maxWeight, req.params.id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    invalidateCache();
+    res.json({ updated: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.delete('/api/exercises/:id', (req, res) => {
-  const r = db.prepare('DELETE FROM exercises WHERE id=?').run(req.params.id);
-  if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
-  invalidateCache();
-  res.json({ deleted: true });
+app.delete('/api/exercises/:id', async (req, res) => {
+  try {
+    const r = await pool.query('DELETE FROM exercises WHERE id=$1', [req.params.id]);
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    invalidateCache();
+    res.json({ deleted: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.post('/api/activities', (req, res) => {
+app.post('/api/activities', async (req, res) => {
   const { date, activityName, count } = req.body;
   if (!date || !activityName) return res.status(400).json({ error: 'Missing fields' });
   const isoDate = date.includes('-') ? date : displayToIso(date);
-  const result = db.prepare('INSERT INTO activity_log (date, activity_name, count) VALUES (?, ?, ?)')
-    .run(isoDate, activityName, count || 1);
-  invalidateCache();
-  res.status(201).json({ id: result.lastInsertRowid });
+  try {
+    const result = await pool.query(
+      'INSERT INTO activity_log (date, activity_name, count) VALUES ($1, $2, $3) RETURNING id',
+      [isoDate, activityName, count || 1]
+    );
+    invalidateCache();
+    res.status(201).json({ id: result.rows[0].id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.delete('/api/activities/:id', (req, res) => {
-  const r = db.prepare('DELETE FROM activity_log WHERE id=?').run(req.params.id);
-  if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
-  invalidateCache();
-  res.json({ deleted: true });
+app.delete('/api/activities/:id', async (req, res) => {
+  try {
+    const r = await pool.query('DELETE FROM activity_log WHERE id=$1', [req.params.id]);
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    invalidateCache();
+    res.json({ deleted: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.listen(PORT, () => console.log(`Gym Journal running at http://localhost:${PORT}`));
+initDB().then(() => {
+  app.listen(PORT, () => console.log(`Gym Journal running at http://localhost:${PORT}`));
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
+});
