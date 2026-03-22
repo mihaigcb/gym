@@ -839,7 +839,8 @@ function renderLog(){
       byGroup.get(grp).push(e);
     }
     for(const [grp,grpEntries] of byGroup){
-      html+='<div class="grp-lbl">'+grp+'</div>';
+      const gc=GROUP_COLORS[grp]||{bg:'#f1f5f9',color:'#475569'};
+      html+='<div style="margin:10px 0 6px"><span style="font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 10px;border-radius:6px;background:'+gc.bg+';color:'+gc.color+'">'+grp.toUpperCase()+'</span></div>';
       for(const e of grpEntries){
         const isEx=e.type==='exercise'||!e.type;
         const name=isEx?e.name:(e.count+' session'+(e.count!==1?'s':''));
