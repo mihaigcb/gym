@@ -1001,9 +1001,6 @@ async function disconnectWithings(){
   await initWithings();
 }
 
-// Handle redirect back from Withings OAuth
-if(location.hash.includes('withings=connected')) showToast('Withings connected successfully!');
-if(location.hash.includes('withings=error')) showToast('Withings connection failed. Try again.');
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init(){
@@ -1020,6 +1017,10 @@ async function init(){
   renderLog();
   renderSummaryChart();
   initWithings();
+  // Handle redirect back from Withings OAuth
+  if(location.hash.includes('withings=connected')) showToast('Withings connected successfully!');
+  if(location.hash.includes('withings=error')) showToast('Withings connection failed. Try again.');
+  if(location.hash.includes('withings=')) history.replaceState(null,'',location.pathname);
 }
 
 init();
@@ -1027,6 +1028,7 @@ init();
 let _toastTimer=null;
 function showToast(msg){
   const t=document.getElementById('toast');
+  if(!t) return;
   t.querySelector('.toast-msg').textContent=msg;
   t.classList.add('show');
   if(_toastTimer) clearTimeout(_toastTimer);
