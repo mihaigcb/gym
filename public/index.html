@@ -122,6 +122,7 @@ input[type=text]{flex:1;min-width:160px}
         <option value="Pull">Pull</option>
         <option value="Legs">Legs</option>
       </select>
+      <button class="btn" onclick="exportCSV()" style="background:#fff;color:#1a1a1a;border:1px solid #e5e3de;white-space:nowrap">Export CSV</button>
     </div>
     <div class="cards" id="ex-list"></div>
   </div>
@@ -234,7 +235,6 @@ input[type=text]{flex:1;min-width:160px}
         </div>
       </div>
       <button class="btn" onclick="addEntry()">Add entry</button>
-      <button class="btn" onclick="exportCSV()" style="background:#fff;color:#1a1a1a;border:1px solid #e5e3de;margin-left:8px">Export CSV</button>
     </div>
     <div class="elist" id="elist"></div>
   </div>
@@ -1001,6 +1001,25 @@ async function disconnectWithings(){
   await initWithings();
 }
 
+
+// ── EXPORT ────────────────────────────────────────────────────────────────────
+function exportCSV(){
+  const rows=[['Date','Group','Exercise','Sets']];
+  for(const ex of GYM_EX){
+    const dates=Object.keys(ex.sessions).sort();
+    for(const date of dates){
+      const raw=ex.sessions[date].d.replace(/ \(\d+kg\)/g,'');
+      const escaped='"'+raw.replace(/"/g,'""')+'"';
+      rows.push([date, ex.group, ex.name, escaped]);
+    }
+  }
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='gym_journal_export.csv';
+  a.click();
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init(){
