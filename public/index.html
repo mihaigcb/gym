@@ -832,13 +832,18 @@ function renderLog(){
     html+='<div class="week-body'+(isOpen?' open':'')+'">';
 
     // Group by muscle group within week
+    const GRP_ORDER=['Chest','Back','Shoulders','Legs (upper)','Legs (lower)','Triceps','Biceps','Activity'];
     const byGroup=new Map();
     for(const e of entries){
       const grp=e.type==='exercise'?(e.group||'Exercise'):'Activity';
       if(!byGroup.has(grp)) byGroup.set(grp,[]);
       byGroup.get(grp).push(e);
     }
-    for(const [grp,grpEntries] of byGroup){
+    const sortedGroups=[...byGroup.keys()].sort((a,b)=>{
+      const ai=GRP_ORDER.indexOf(a), bi=GRP_ORDER.indexOf(b);
+      return (ai===-1?99:ai)-(bi===-1?99:bi);
+    });
+    for(const grp of sortedGroups){ const grpEntries=byGroup.get(grp);
       const gc=GROUP_COLORS[grp]||{bg:'#f1f5f9',color:'#475569'};
       html+='<div style="margin:10px 0 6px"><span style="font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 10px;border-radius:6px;background:'+gc.bg+';color:'+gc.color+'">'+grp.toUpperCase()+'</span></div>';
       for(const e of grpEntries){
