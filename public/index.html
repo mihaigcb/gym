@@ -225,7 +225,7 @@ input[type=text]{flex:1;min-width:160px}
           <div id="log-sets-preview" style="font-size:11px;font-family:ui-monospace,monospace;color:#aaa;white-space:pre-line;margin-top:4px;line-height:1.5"></div>
         </div>
         <div class="fg" style="flex:1">
-          <label>LAST SESSION</label>
+          <label>LAST SESSION <span id="log-sets-prev-date" style="font-weight:400;color:#bbb;text-transform:none;letter-spacing:0"></span></label>
           <textarea id="log-sets-prev" readonly placeholder="No previous entry" style="background:#f7f6f3;color:#888;resize:none;overflow:hidden"></textarea>
         </div>
       </div>
@@ -779,9 +779,11 @@ function prefillSets(){
   const ex=GYM_EX.find(e=>e.group===group&&e.name===name);
   const setsEl=document.getElementById('log-sets');
   const prev=document.getElementById('log-sets-prev');
-  if(!ex){ prev.value=''; syncSetHeights(); return; }
+  const dateLabel=document.getElementById('log-sets-prev-date');
+  if(!ex){ prev.value=''; dateLabel.textContent=''; syncSetHeights(); return; }
   const dates=Object.keys(ex.sessions).sort((a,b)=>new Date(b)-new Date(a));
-  if(!dates.length){ prev.value=''; syncSetHeights(); return; }
+  if(!dates.length){ prev.value=''; dateLabel.textContent=''; syncSetHeights(); return; }
+  dateLabel.textContent='— '+dates[0];
   const sessionText=ex.sessions[dates[0]].d;
   const sessionTotal=calcLinesTotal(sessionText.split('\n'));
   prev.value=sessionText+(sessionTotal>0?'\n─────────────\nTotal: '+sessionTotal+'kg':'');
