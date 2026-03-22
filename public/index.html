@@ -96,9 +96,9 @@ input[type=text]{flex:1;min-width:160px}
 .btn-cancel:hover{background:#f8f7f4}
 .btn-save{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;background:#1a1a1a;color:#fff;border:none}
 .btn-save:hover{opacity:.85}
-.timer-btn{padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#fff;color:#1a1a1a;border:1px solid #e5e3de;font-family:ui-monospace,monospace;transition:background .15s,color .15s,border-color .15s}
-.timer-btn:hover{background:#f0f0f0}
-.timer-btn.running{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+.timer-btn{padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid transparent;font-family:ui-monospace,monospace;transition:filter .15s,box-shadow .15s}
+.timer-btn:hover{filter:brightness(.88)}
+.timer-btn.running{box-shadow:0 0 0 2px #fff,0 0 0 4px #1d4ed8;filter:brightness(.88)}
 .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1a1a;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:opacity .22s,transform .22s;z-index:999;display:flex;align-items:center;gap:8px;white-space:nowrap}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
@@ -239,9 +239,11 @@ input[type=text]{flex:1;min-width:160px}
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="addEntry()">Add entry</button>
-        <button class="timer-btn" id="tbtn-60"  onclick="startTimer(60)"  title="1 min rest">1:00</button>
-        <button class="timer-btn" id="tbtn-90"  onclick="startTimer(90)"  title="1 min 30 sec rest">1:30</button>
-        <button class="timer-btn" id="tbtn-120" onclick="startTimer(120)" title="2 min rest">2:00</button>
+        <button class="timer-btn" id="tbtn-30"  onclick="startTimer(30)"  title="30 sec rest"        style="background:#dbeafe;color:#1e40af">0:30</button>
+        <button class="timer-btn" id="tbtn-60"  onclick="startTimer(60)"  title="1 min rest"         style="background:#93c5fd;color:#1e3a8a">1:00</button>
+        <button class="timer-btn" id="tbtn-90"  onclick="startTimer(90)"  title="1 min 30 sec rest"  style="background:#3b82f6;color:#fff">1:30</button>
+        <button class="timer-btn" id="tbtn-120" onclick="startTimer(120)" title="2 min rest"         style="background:#1d4ed8;color:#fff">2:00</button>
+        <button class="timer-btn" id="tbtn-sw"  onclick="toggleStopwatch()" title="Stopwatch"       style="background:#fee2e2;color:#991b1b">⏱ 0:00</button>
         <span id="timer-display" style="display:none;font-size:13px;font-weight:600;font-family:ui-monospace,monospace;color:#1a1a1a;min-width:36px;text-align:center"></span>
       </div>
     </div>
@@ -543,14 +545,14 @@ function getActivityChartData(name){
     .map(([date,count])=>({date,count}));
 }
 
-function getLast12Weeks(){
+function getLast6Weeks(){
   const weeks=[];
   const today=new Date();
   const day=today.getDay();
   const monday=new Date(today);
   monday.setDate(today.getDate()-(day===0?6:day-1));
   monday.setHours(0,0,0,0);
-  for(let i=11;i>=0;i--){
+  for(let i=5;i>=0;i--){
     const d=new Date(monday);
     d.setDate(monday.getDate()-i*7);
     weeks.push(d);
@@ -571,7 +573,7 @@ let ACTIVITY = {};
 function renderActivity(){
   ACTIVITY = buildActivityData();
   const wrap=document.getElementById('activity-wrap');
-  const weeks=getLast12Weeks();
+  const weeks=getLast6Weeks();
   const weekLabels=weeks.map(d=>d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
   wrap.innerHTML=Object.keys(ACTIVITY).map(name=>{
     const cd=getActivityChartData(name);
@@ -716,8 +718,22 @@ function renderSummaryChart(){
   const weekStart=dateStr=>{const MONTHS={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};let d;const iso=dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);const disp=dateStr.match(/^(\d{1,2})\s+(\w+)\s+(\d{4})/);if(iso){d=new Date(+iso[1],+iso[2]-1,+iso[3]);}else if(disp){d=new Date(+disp[3],MONTHS[disp[2]],+disp[1]);}else{d=new Date(dateStr);}d.setDate(d.getDate()-(d.getDay()||7)+1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   const xCb=function(v){return this.getLabelForValue(v);};
   const S=SUMMARY;
+
+  // Aggregate sessions that fall in the same week into one data point
+  const weekMap=new Map();
+  S.dates.forEach((d,i)=>{
+    const wk=weekStart(d);
+    if(!weekMap.has(wk)) weekMap.set(wk,{totalSets:0,sets:Object.fromEntries(S.groups.map(g=>[g,0]))});
+    const e=weekMap.get(wk);
+    e.totalSets+=(S.totalSets[i]||0);
+    for(const g of S.groups) e.sets[g]+=(S.sets[g][i]||0);
+  });
+  const aggWeeks=[...weekMap.keys()]; // preserves insertion order = chronological
+  const aggTotalSets=aggWeeks.map(wk=>weekMap.get(wk).totalSets);
+  const aggGroupSets=Object.fromEntries(S.groups.map(g=>[g,aggWeeks.map(wk=>weekMap.get(wk).sets[g])]));
+
   const MIN_WIN=6;
-  const total=S.dates.length;
+  const total=aggWeeks.length;
   const slider=document.getElementById('sum-slider');
   const sliderWrap=document.getElementById('sum-slider-wrap');
   if(total>MIN_WIN){
@@ -729,15 +745,16 @@ function renderSummaryChart(){
   }
   const windowSize=total>MIN_WIN?(parseInt(slider.value)||MIN_WIN):total;
   const sliceData=arr=>arr.slice(total-windowSize);
-  const labels=sliceData(S.dates).map(weekStart);
+  const labels=sliceData(aggWeeks);
+
   if(sumMetric==='sets'){
-    document.getElementById('sum-chart-sub').textContent='total sets per session';
-    sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total sets',data:sliceData(S.totalSets),backgroundColor:'#1a1a1a',borderRadius:3,borderSkipped:false}]},
+    document.getElementById('sum-chart-sub').textContent='total sets per week';
+    sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total sets',data:sliceData(aggTotalSets),backgroundColor:'#1a1a1a',borderRadius:3,borderSkipped:false}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.raw+' sets'}}},
         scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false}},y:{ticks:{font:{size:9}},grid:{color:'#f0eeeb'},min:0}}}});
   } else {
-    document.getElementById('sum-chart-sub').textContent='sets per session by muscle group';
-    const datasets=S.groups.map(g=>({label:g,data:sliceData(S.sets[g]),backgroundColor:S.groupColors[g],stack:'sets',borderRadius:2,borderSkipped:false}));
+    document.getElementById('sum-chart-sub').textContent='sets per week by muscle group';
+    const datasets=S.groups.map(g=>({label:g,data:sliceData(aggGroupSets[g]),backgroundColor:S.groupColors[g],stack:'sets',borderRadius:2,borderSkipped:false}));
     sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets},
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:true,position:'bottom',labels:{boxWidth:10,boxHeight:10,font:{size:10},padding:8}},
@@ -795,7 +812,9 @@ function prefillSets(){
   dateLabel.textContent='— '+dates[0];
   const sessionText=ex.sessions[dates[0]].d;
   const sessionTotal=calcLinesTotal(sessionText.split('\n'));
-  prev.value=sessionText+(sessionTotal>0?'\n─────────────\nTotal: '+sessionTotal+'kg':'');
+  const maxEntry=Object.entries(ex.sessions).reduce((best,[date,s])=>(s.v||0)>(best.v||0)?{date,v:s.v}:best,{date:'',v:0});
+  const maxLine=maxEntry.v>0?'\n🏆 Best: '+maxEntry.v+'kg ('+maxEntry.date+')':'';
+  prev.value=sessionText+(sessionTotal>0?'\n─────────────\nTotal: '+sessionTotal+'kg':'')+maxLine;
   requestAnimationFrame(syncSetHeights);
 }
 
@@ -834,9 +853,14 @@ async function addEntry(){
     ok=r.ok; label=name+' logged successfully';
   }
 
+  if(ok){
+    document.getElementById('log-sets').value='';
+    document.getElementById('log-sets-preview').textContent='';
+  }
   await loadData();
   renderHistory();
   renderLog();
+  prefillSets();
   if(ok) showToast(label);
 }
 
@@ -1092,14 +1116,29 @@ init();
 let _toastTimer=null;
 // ── Rest Timers ───────────────────────────────────────────────────────────────
 let _timerInterval = null;
-let _timerActive = null; // seconds this timer was started with
+let _timerDuration = null; // total seconds for active timer
+let _timerEndTime  = null; // absolute ms timestamp when timer expires
+let _audioCtx = null;      // shared AudioContext, unlocked on first user gesture
+
+function _ensureAudioCtx() {
+  if (!_audioCtx) {
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  // Resume in case browser suspended it — must be called inside a user gesture
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
 
 function startTimer(seconds) {
+  // Unlock audio on the user's click gesture so beep works later
+  _ensureAudioCtx();
+
   // If same timer clicked again, cancel it
-  if (_timerActive === seconds && _timerInterval) {
+  if (_timerDuration === seconds && _timerInterval) {
     clearInterval(_timerInterval);
     _timerInterval = null;
-    _timerActive = null;
+    _timerDuration = null;
+    _timerEndTime  = null;
     _resetTimerUI();
     return;
   }
@@ -1108,21 +1147,26 @@ function startTimer(seconds) {
     clearInterval(_timerInterval);
     _timerInterval = null;
   }
-  _timerActive = seconds;
-  let remaining = seconds;
-  _updateTimerUI(remaining, seconds);
+  _timerDuration = seconds;
+  _timerEndTime  = Date.now() + seconds * 1000;
+  _tickTimer();
+  // Tick every 500ms so we catch the moment even if a tick is delayed
+  _timerInterval = setInterval(_tickTimer, 500);
+}
 
-  _timerInterval = setInterval(() => {
-    remaining--;
-    _updateTimerUI(remaining, seconds);
-    if (remaining <= 0) {
-      clearInterval(_timerInterval);
-      _timerInterval = null;
-      _timerActive = null;
-      _resetTimerUI();
-      _playBeep();
-    }
-  }, 1000);
+function _tickTimer() {
+  if (!_timerEndTime) return;
+  const remaining = Math.ceil((_timerEndTime - Date.now()) / 1000);
+  if (remaining <= 0) {
+    clearInterval(_timerInterval);
+    _timerInterval = null;
+    _timerDuration = null;
+    _timerEndTime  = null;
+    _resetTimerUI();
+    _playBeep();
+  } else {
+    _updateTimerUI(remaining, _timerDuration);
+  }
 }
 
 function _updateTimerUI(remaining, total) {
@@ -1134,7 +1178,7 @@ function _updateTimerUI(remaining, total) {
   // Colour the display red in last 10s
   display.style.color = remaining <= 10 ? '#dc2626' : '#1a1a1a';
   // Highlight the active button
-  ['60','90','120'].forEach(k => {
+  ['30','60','90','120'].forEach(k => {
     const btn = document.getElementById('tbtn-' + k);
     if (btn) btn.classList.toggle('running', parseInt(k) === total);
   });
@@ -1144,7 +1188,7 @@ function _resetTimerUI() {
   const display = document.getElementById('timer-display');
   display.style.display = 'none';
   display.style.color = '#1a1a1a';
-  ['60','90','120'].forEach(k => {
+  ['30','60','90','120'].forEach(k => {
     const btn = document.getElementById('tbtn-' + k);
     if (btn) btn.classList.remove('running');
   });
@@ -1152,8 +1196,8 @@ function _resetTimerUI() {
 
 function _playBeep() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    // Three short beeps
+    // Reuse the already-unlocked context (created during the user's button click)
+    const ctx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     [0, 0.22, 0.44].forEach(offset => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -1167,9 +1211,48 @@ function _playBeep() {
       osc.start(ctx.currentTime + offset);
       osc.stop(ctx.currentTime + offset + 0.2);
     });
-    // Auto-close the context after the beeps finish
-    setTimeout(() => ctx.close(), 1000);
   } catch(e) { /* AudioContext not available */ }
+}
+
+// When returning to the tab/app, immediately recalculate based on real clock
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (_timerEndTime) _tickTimer();
+    if (_swStartTime)  _tickStopwatch();
+  }
+});
+
+// ── Stopwatch ─────────────────────────────────────────────────────────────────
+let _swInterval  = null;
+let _swStartTime = null; // absolute ms timestamp when stopwatch started
+
+function toggleStopwatch() {
+  const btn = document.getElementById('tbtn-sw');
+  if (_swInterval) {
+    // Running → stop and reset
+    clearInterval(_swInterval);
+    _swInterval  = null;
+    _swStartTime = null;
+    btn.textContent = '⏱ 0:00';
+    btn.style.background = '#fee2e2';
+    btn.style.color = '#991b1b';
+  } else {
+    // Stopped → start
+    _swStartTime = Date.now();
+    btn.style.background = '#dc2626';
+    btn.style.color = '#fff';
+    _tickStopwatch();
+    _swInterval = setInterval(_tickStopwatch, 500);
+  }
+}
+
+function _tickStopwatch() {
+  if (!_swStartTime) return;
+  const elapsed = Math.floor((Date.now() - _swStartTime) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const btn = document.getElementById('tbtn-sw');
+  if (btn) btn.textContent = '⏱ ' + mins + ':' + String(secs).padStart(2, '0');
 }
 
 function showToast(msg){
