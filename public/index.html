@@ -96,6 +96,9 @@ input[type=text]{flex:1;min-width:160px}
 .btn-cancel:hover{background:#f8f7f4}
 .btn-save{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;background:#1a1a1a;color:#fff;border:none}
 .btn-save:hover{opacity:.85}
+.timer-btn{padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#fff;color:#1a1a1a;border:1px solid #e5e3de;font-family:ui-monospace,monospace;transition:background .15s,color .15s,border-color .15s}
+.timer-btn:hover{background:#f0f0f0}
+.timer-btn.running{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
 .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1a1a;color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:opacity .22s,transform .22s;z-index:999;display:flex;align-items:center;gap:8px;white-space:nowrap}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
@@ -234,7 +237,13 @@ input[type=text]{flex:1;min-width:160px}
           <input type="number" id="log-count" value="1" min="1" max="10" style="width:120px">
         </div>
       </div>
-      <button class="btn" onclick="addEntry()">Add entry</button>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="addEntry()">Add entry</button>
+        <button class="timer-btn" id="tbtn-60"  onclick="startTimer(60)"  title="1 min rest">1:00</button>
+        <button class="timer-btn" id="tbtn-90"  onclick="startTimer(90)"  title="1 min 30 sec rest">1:30</button>
+        <button class="timer-btn" id="tbtn-120" onclick="startTimer(120)" title="2 min rest">2:00</button>
+        <span id="timer-display" style="display:none;font-size:13px;font-weight:600;font-family:ui-monospace,monospace;color:#1a1a1a;min-width:36px;text-align:center"></span>
+      </div>
     </div>
     <div class="elist" id="elist"></div>
   </div>
@@ -1081,6 +1090,88 @@ async function init(){
 init();
 
 let _toastTimer=null;
+// ── Rest Timers ───────────────────────────────────────────────────────────────
+let _timerInterval = null;
+let _timerActive = null; // seconds this timer was started with
+
+function startTimer(seconds) {
+  // If same timer clicked again, cancel it
+  if (_timerActive === seconds && _timerInterval) {
+    clearInterval(_timerInterval);
+    _timerInterval = null;
+    _timerActive = null;
+    _resetTimerUI();
+    return;
+  }
+  // Cancel any existing timer
+  if (_timerInterval) {
+    clearInterval(_timerInterval);
+    _timerInterval = null;
+  }
+  _timerActive = seconds;
+  let remaining = seconds;
+  _updateTimerUI(remaining, seconds);
+
+  _timerInterval = setInterval(() => {
+    remaining--;
+    _updateTimerUI(remaining, seconds);
+    if (remaining <= 0) {
+      clearInterval(_timerInterval);
+      _timerInterval = null;
+      _timerActive = null;
+      _resetTimerUI();
+      _playBeep();
+    }
+  }, 1000);
+}
+
+function _updateTimerUI(remaining, total) {
+  const display = document.getElementById('timer-display');
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  display.textContent = mins + ':' + String(secs).padStart(2, '0');
+  display.style.display = 'inline';
+  // Colour the display red in last 10s
+  display.style.color = remaining <= 10 ? '#dc2626' : '#1a1a1a';
+  // Highlight the active button
+  ['60','90','120'].forEach(k => {
+    const btn = document.getElementById('tbtn-' + k);
+    if (btn) btn.classList.toggle('running', parseInt(k) === total);
+  });
+}
+
+function _resetTimerUI() {
+  const display = document.getElementById('timer-display');
+  display.style.display = 'none';
+  display.style.color = '#1a1a1a';
+  ['60','90','120'].forEach(k => {
+    const btn = document.getElementById('tbtn-' + k);
+    if (btn) btn.classList.remove('running');
+  });
+}
+
+function _playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Three short beeps
+    [0, 0.22, 0.44].forEach(offset => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0, ctx.currentTime + offset);
+      gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + offset + 0.01);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + offset + 0.18);
+      osc.start(ctx.currentTime + offset);
+      osc.stop(ctx.currentTime + offset + 0.2);
+    });
+    // Auto-close the context after the beeps finish
+    setTimeout(() => ctx.close(), 1000);
+  } catch(e) { /* AudioContext not available */ }
+}
+
 function showToast(msg){
   const t=document.getElementById('toast');
   if(!t) return;
