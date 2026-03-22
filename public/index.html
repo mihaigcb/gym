@@ -154,8 +154,7 @@ input[type=text]{flex:1;min-width:160px}
     <div style="font-size:13px;font-weight:500;color:#1a1a1a;margin-bottom:12px">Overall summary</div>
     <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
       <button class="sum-btn active" id="sum-btn-sets" onclick="setSummaryMetric('sets')" style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#1a1a1a;color:#fff;border:none">Total sets</button>
-      <button class="sum-btn" id="sum-btn-vol" onclick="setSummaryMetric('vol')" style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#1a1a1a;border:1px solid #e5e3de">Max volume</button>
-      <button class="sum-btn" id="sum-btn-grpsets" onclick="setSummaryMetric('grpsets')" style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#1a1a1a;border:1px solid #e5e3de">Sets by group</button>
+<button class="sum-btn" id="sum-btn-grpsets" onclick="setSummaryMetric('grpsets')" style="font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;background:#fff;color:#1a1a1a;border:1px solid #e5e3de">Sets by group</button>
     </div>
     <div class="chart-card">
       <div class="chart-inner" style="height:260px"><canvas id="sum-chart"></canvas></div>
@@ -222,7 +221,8 @@ input[type=text]{flex:1;min-width:160px}
       <div id="log-sets-wrap" style="margin-bottom:12px;display:flex;gap:10px">
         <div class="fg" style="flex:1">
           <label>SETS &mdash; one per line, e.g. 80x5</label>
-          <textarea id="log-sets" placeholder="80x5&#10;80x5&#10;77.5x5" style="overflow:hidden" oninput="syncSetHeights()"></textarea>
+          <textarea id="log-sets" placeholder="80x5&#10;80x5&#10;77.5x5" style="overflow:hidden" oninput="syncSetHeights();updateSetsPreview()"></textarea>
+          <div id="log-sets-preview" style="font-size:11px;font-family:ui-monospace,monospace;color:#aaa;white-space:pre-line;margin-top:4px;line-height:1.5"></div>
         </div>
         <div class="fg" style="flex:1">
           <label>LAST SESSION</label>
@@ -726,11 +726,6 @@ function renderSummaryChart(){
     sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total sets',data:sliceData(S.totalSets),backgroundColor:'#1a1a1a',borderRadius:3,borderSkipped:false}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.raw+' sets'}}},
         scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false}},y:{ticks:{font:{size:9}},grid:{color:'#f0eeeb'},min:0}}}});
-  } else if(sumMetric==='vol'){
-    document.getElementById('sum-chart-sub').textContent='total volume per session';
-    sumChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Total volume',data:sliceData(S.totalVol),backgroundColor:'#16a34a',borderRadius:3,borderSkipped:false}]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:i=>i.raw.toLocaleString()+' kg'}}},
-        scales:{x:{ticks:{maxTicksLimit:10,maxRotation:30,font:{size:9},callback:xCb},grid:{display:false}},y:{ticks:{font:{size:9},callback:v=>v.toLocaleString()+'kg'},grid:{color:'#f0eeeb'},min:0}}}});
   } else {
     document.getElementById('sum-chart-sub').textContent='sets per session by muscle group';
     const datasets=S.groups.map(g=>({label:g,data:sliceData(S.sets[g]),backgroundColor:S.groupColors[g],stack:'sets',borderRadius:2,borderSkipped:false}));
@@ -753,6 +748,24 @@ function updateLogType(){
   if(t==='exercise') updateLogEx();
 }
 
+function calcLinesTotal(lines){
+  return lines.reduce((sum,line)=>{
+    const m=line.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
+    return sum+(m?Math.round(parseFloat(m[1])*parseInt(m[2])):0);
+  },0);
+}
+function updateSetsPreview(){
+  const lines=document.getElementById('log-sets').value.split('\n');
+  const annotated=lines.map(line=>{
+    const m=line.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
+    if(m) return line.trimEnd()+' ('+Math.round(parseFloat(m[1])*parseInt(m[2]))+'kg)';
+    return line;
+  });
+  const total=calcLinesTotal(lines);
+  const totalLine=total>0?'\n─────────────\nTotal: '+total+'kg':'';
+  document.getElementById('log-sets-preview').textContent=(annotated.join('\n').trim()+totalLine);
+}
+
 function syncSetHeights(){
   const setsEl=document.getElementById('log-sets');
   const prev=document.getElementById('log-sets-prev');
@@ -769,7 +782,9 @@ function prefillSets(){
   if(!ex){ prev.value=''; syncSetHeights(); return; }
   const dates=Object.keys(ex.sessions).sort((a,b)=>new Date(b)-new Date(a));
   if(!dates.length){ prev.value=''; syncSetHeights(); return; }
-  prev.value=ex.sessions[dates[0]].d;
+  const sessionText=ex.sessions[dates[0]].d;
+  const sessionTotal=calcLinesTotal(sessionText.split('\n'));
+  prev.value=sessionText+(sessionTotal>0?'\n─────────────\nTotal: '+sessionTotal+'kg':'');
   requestAnimationFrame(syncSetHeights);
 }
 
