@@ -13,6 +13,14 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#f8f7f4;color:#1a
 .tabs{display:flex;border-bottom:1px solid #e5e3de;background:#fff;padding:0 20px}
 .tab{padding:12px 18px;font-size:13px;font-weight:500;color:#999;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s,border-color .15s}
 .tab.active{color:#1a1a1a;border-bottom-color:#1a1a1a}
+.tabs .tab:nth-child(1).active{color:#16a34a;border-bottom-color:#16a34a}
+.tabs .tab:nth-child(2).active{color:#2563eb;border-bottom-color:#2563eb}
+.tabs .tab:nth-child(3).active{color:#7c3aed;border-bottom-color:#7c3aed}
+.tabs .tab:nth-child(4).active{color:#d97706;border-bottom-color:#d97706}
+.tabs .tab:nth-child(1):hover{color:#16a34a}
+.tabs .tab:nth-child(2):hover{color:#2563eb}
+.tabs .tab:nth-child(3):hover{color:#7c3aed}
+.tabs .tab:nth-child(4):hover{color:#d97706}
 .wrap{max-width:860px;margin:0 auto;padding:20px}
 .sec{display:none}.sec.active{display:block}
 .row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
@@ -1096,20 +1104,11 @@ function renderWithingsChart(){
   const weeks=[...byWeek.keys()].sort();
   const weeklyData=weeks.map(wk=>{const vals=byWeek.get(wk);return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);});
 
-  const MIN_WIN=12;
+  const WIN=6;
   const total=weeks.length;
-  const slider=document.getElementById('withings-slider');
-  const sliderWrap=document.getElementById('withings-slider-wrap');
-  if(total>MIN_WIN){
-    sliderWrap.style.display='';
-    slider.min=MIN_WIN; slider.max=total;
-    if(!slider.dataset.metric||slider.dataset.metric!==withingsMetric){slider.value=MIN_WIN;slider.dataset.metric=withingsMetric;}
-  } else {
-    sliderWrap.style.display='none';
-  }
-  const windowSize=total>MIN_WIN?(parseInt(slider.value)||MIN_WIN):total;
-  const visibleWeeks=weeks.slice(total-windowSize);
-  const visibleData=weeklyData.slice(total-windowSize);
+  document.getElementById('withings-slider-wrap').style.display='none';
+  const visibleWeeks=weeks.slice(Math.max(0,total-WIN));
+  const visibleData=weeklyData.slice(Math.max(0,total-WIN));
 
   const color=WITHINGS_COLORS[withingsMetric];
   const unit=withingsMetric==='fat_ratio'?'%':'kg';
