@@ -1313,6 +1313,10 @@ async function init(){
   if(location.hash.includes('withings=connected')) showToast('Withings connected successfully!');
   if(location.hash.includes('withings=error')) showToast('Withings connection failed. Try again.');
   if(location.hash.includes('withings=')) history.replaceState(null,'',location.pathname);
+  // Register service worker for background timer notifications
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  }
 }
 
 init();
@@ -1358,22 +1362,37 @@ function _ensureAudioCtx() {
   if (!_audioCtx) {
     _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
-  // Resume in case browser suspended it — must be called inside a user gesture
-  if (_audioCtx.state === 'suspended') _audioCtx.resume();
   return _audioCtx;
 }
 
-function startTimer(seconds) {
-  // Unlock audio on the user's click gesture so beep works later
-  _ensureAudioCtx();
+// ── Service Worker messaging ───────────────────────────────────────────────
+function _swPost(msg) {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready.then(reg => {
+    if (reg.active) reg.active.postMessage(msg);
+  }).catch(() => {});
+}
 
-  // If same timer clicked again, cancel it
+function _requestNotifPermission(cb) {
+  if (!('Notification' in window)) { cb && cb(); return; }
+  if (Notification.permission === 'granted') { cb && cb(); return; }
+  if (Notification.permission === 'denied')  { cb && cb(); return; }
+  Notification.requestPermission().then(() => { cb && cb(); });
+}
+
+function startTimer(seconds) {
+  // Unlock AudioContext on user gesture so foreground beep works
+  const ctx = _ensureAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+
+  // Same timer clicked again — cancel
   if (_timerDuration === seconds && _timerInterval) {
     clearInterval(_timerInterval);
     _timerInterval = null;
     _timerDuration = null;
     _timerEndTime  = null;
     _resetTimerUI();
+    _swPost({ type: 'CANCEL_TIMER' });
     return;
   }
   // Cancel any existing timer
@@ -1384,8 +1403,17 @@ function startTimer(seconds) {
   _timerDuration = seconds;
   _timerEndTime  = Date.now() + seconds * 1000;
   _tickTimer();
-  // Tick every 500ms so we catch the moment even if a tick is delayed
   _timerInterval = setInterval(_tickTimer, 500);
+
+  // Schedule background notification so it fires even with screen locked
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  const label = mins > 0
+    ? mins + ':' + String(secs).padStart(2,'0') + ' rest'
+    : '0:' + String(secs).padStart(2,'0') + ' rest';
+  _requestNotifPermission(() => {
+    _swPost({ type: 'START_TIMER', endTime: _timerEndTime, label });
+  });
 }
 
 function _tickTimer() {
@@ -1398,6 +1426,8 @@ function _tickTimer() {
     _timerEndTime  = null;
     _resetTimerUI();
     _playBeep();
+    // Cancel the SW notification — we're in foreground so beep already played
+    _swPost({ type: 'CANCEL_TIMER' });
   } else {
     _updateTimerUI(remaining, _timerDuration);
   }
@@ -1409,9 +1439,7 @@ function _updateTimerUI(remaining, total) {
   const secs = remaining % 60;
   display.textContent = mins + ':' + String(secs).padStart(2, '0');
   display.style.display = 'inline';
-  // Colour the display red in last 10s
   display.style.color = remaining <= 10 ? '#dc2626' : '#1a1a1a';
-  // Highlight the active button
   ['30','60','90','120'].forEach(k => {
     const btn = document.getElementById('tbtn-' + k);
     if (btn) btn.classList.toggle('running', parseInt(k) === total);
@@ -1430,21 +1458,29 @@ function _resetTimerUI() {
 
 function _playBeep() {
   try {
-    // Reuse the already-unlocked context (created during the user's button click)
     const ctx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    [0, 0.22, 0.44].forEach(offset => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0, ctx.currentTime + offset);
-      gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + offset + 0.01);
-      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + offset + 0.18);
-      osc.start(ctx.currentTime + offset);
-      osc.stop(ctx.currentTime + offset + 0.2);
-    });
+    // Resume (may be suspended after background) then schedule beep
+    const doBeep = () => {
+      const t0 = ctx.currentTime;
+      [0, 0.22, 0.44].forEach(offset => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0, t0 + offset);
+        gain.gain.linearRampToValueAtTime(0.6, t0 + offset + 0.01);
+        gain.gain.linearRampToValueAtTime(0, t0 + offset + 0.18);
+        osc.start(t0 + offset);
+        osc.stop(t0 + offset + 0.2);
+      });
+    };
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(doBeep).catch(() => {});
+    } else {
+      doBeep();
+    }
   } catch(e) { /* AudioContext not available */ }
 }
 
