@@ -1,10 +1,100 @@
-const express = require('express');
+const express    = require('express');
+const crypto     = require('crypto');
+const cookieParser = require('cookie-parser');
 const { pool, initDB } = require('./db');
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+
+// Derive a stable token from the password so it survives server restarts
+function makeToken(pw) {
+  return crypto.createHash('sha256').update('gym_journal:' + pw).digest('hex');
+}
+
+const LOGIN_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gym Journal — Login</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f8f7f4;min-height:100vh;display:flex;flex-direction:column}
+.hdr{background:#1a1a1a;color:#fff;padding:14px 20px;display:flex;align-items:center;gap:10px}
+.hdr h1{font-size:15px;font-weight:500;letter-spacing:.02em}
+.wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#fff;border:1px solid #e5e3de;border-radius:12px;padding:28px 24px;width:100%;max-width:360px}
+.card h2{font-size:15px;font-weight:500;margin-bottom:4px}
+.sub{font-size:12px;color:#aaa;margin-bottom:20px}
+label{display:block;font-size:10px;color:#aaa;font-weight:600;letter-spacing:.05em;margin-bottom:5px}
+input{width:100%;padding:9px 12px;border:1px solid #e5e3de;border-radius:8px;font-size:14px;outline:none;color:#1a1a1a}
+input:focus{border-color:#888}
+.err{font-size:12px;color:#dc2626;margin-top:8px;display:none}
+.err.show{display:block}
+button{margin-top:16px;width:100%;padding:10px;border-radius:8px;font-size:14px;font-weight:500;background:#1a1a1a;color:#fff;border:none;cursor:pointer}
+button:hover{opacity:.85}
+</style>
+</head>
+<body>
+<div class="hdr"><span>&#128170;</span><h1>Gym Journal</h1></div>
+<div class="wrap">
+  <div class="card">
+    <h2>Welcome back</h2>
+    <p class="sub">Enter your password to continue.</p>
+    <form method="POST" action="/login">
+      <label>PASSWORD</label>
+      <input type="password" name="password" autofocus autocomplete="current-password" placeholder="••••••••">
+      <div class="err" id="err">Incorrect password. Try again.</div>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</div>
+<script>
+  if(location.search.includes('error=1')){document.getElementById('err').classList.add('show');}
+</script>
+</body>
+</html>`;
+
+app.use(cookieParser());
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// Login / logout routes (before auth middleware)
+app.get('/login', (req, res) => {
+  if (!APP_PASSWORD) return res.redirect('/');
+  res.send(LOGIN_PAGE);
+});
+
+app.post('/login', (req, res) => {
+  if (!APP_PASSWORD) return res.redirect('/');
+  const { password } = req.body;
+  if (password === APP_PASSWORD) {
+    res.cookie('gym_auth', makeToken(APP_PASSWORD), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+    return res.redirect('/');
+  }
+  res.redirect('/login?error=1');
+});
+
+app.get('/logout', (req, res) => {
+  res.clearCookie('gym_auth');
+  res.redirect('/login');
+});
+
+// Auth middleware — skips if APP_PASSWORD not configured (dev mode)
+app.use((req, res, next) => {
+  if (!APP_PASSWORD) return next();
+  if (req.cookies?.gym_auth === makeToken(APP_PASSWORD)) return next();
+  res.redirect('/login');
+});
+
 app.use(express.static('public'));
 
 // ── helpers ───────────────────────────────────────────────────────────────────
