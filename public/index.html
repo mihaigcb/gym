@@ -290,8 +290,24 @@ input[type=text]{flex:1;min-width:160px}
       <input type="date" id="modal-date-inp" style="padding:7px 10px;border:1px solid #e5e3de;border-radius:8px;font-size:13px;width:100%">
     </div>
     <div class="modal-sub" id="modal-sub"></div>
-    <textarea id="modal-textarea" placeholder="80x5&#10;80x5&#10;77.5x5"></textarea>
-    <div class="modal-hint">One set per line &mdash; weight x reps (e.g. 80x5). Volume is recalculated automatically.</div>
+    <!-- Exercise fields -->
+    <div id="modal-ex-wrap">
+      <textarea id="modal-textarea" placeholder="80x5&#10;80x5&#10;77.5x5"></textarea>
+      <div class="modal-hint">One set per line &mdash; weight x reps (e.g. 80x5). Volume is recalculated automatically.</div>
+    </div>
+    <!-- Activity fields -->
+    <div id="modal-act-wrap" style="display:none">
+      <div style="margin-bottom:10px">
+        <label style="font-size:10px;color:#aaa;font-weight:600;letter-spacing:.05em;display:block;margin-bottom:4px">ACTIVITY</label>
+        <select id="modal-act-name" style="width:100%;padding:8px 10px;border:1px solid #e5e3de;border-radius:8px;font-size:13px;background:#fff;color:#1a1a1a;outline:none">
+          <option>Core</option><option>Pilates</option><option>Kineto</option><option>Cardio</option><option>Dancing</option>
+        </select>
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:10px;color:#aaa;font-weight:600;letter-spacing:.05em;display:block;margin-bottom:4px">NUMBER OF SESSIONS</label>
+        <input type="number" id="modal-act-count" min="1" max="10" value="1" style="padding:8px 10px;border:1px solid #e5e3de;border-radius:8px;font-size:13px;width:120px">
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
       <button class="btn-save" onclick="saveModal()">Save</button>
@@ -371,12 +387,13 @@ function parseLines(text){
 }
 
 // ── MODAL ─────────────────────────────────────────────────────────────────────
-let _mEi=null, _mDate=null;
+let _mEi=null, _mDate=null, _mType=null, _mLogId=null;
 
 function openEdit(ei, d){
   const ex=window._histExs[ei];
   const s=getMergedSessions(ex)[d];
-  _mEi=ei; _mDate=d;
+  _mEi=ei; _mDate=d; _mLogId=null; _mType=null;
+  _setModalMode('exercise');
   document.getElementById('modal-title').textContent='Edit session';
   document.getElementById('modal-sub').textContent=ex.name+' — '+d;
   document.getElementById('modal-textarea').value=s.d.replace(/ \(\d+kg\)/g,'');
@@ -385,7 +402,8 @@ function openEdit(ei, d){
 }
 
 function openAdd(ei){
-  _mEi=ei; _mDate=null;
+  _mEi=ei; _mDate=null; _mLogId=null; _mType=null;
+  _setModalMode('exercise');
   const ex=window._histExs[ei];
   document.getElementById('modal-title').textContent='Add session';
   document.getElementById('modal-sub').textContent=ex.name;
@@ -395,17 +413,79 @@ function openAdd(ei){
   document.getElementById('edit-modal').classList.add('open');
 }
 
+function _setModalMode(type){
+  document.getElementById('modal-ex-wrap').style.display=type==='exercise'?'':'none';
+  document.getElementById('modal-act-wrap').style.display=type==='activity'?'':'none';
+}
+
+function openLogEditEx(id, date, btn){
+  // Read raw sets from data-sets attribute on the ecard
+  const raw=(btn.closest('.ecard').dataset.sets||'').replace(/&#10;/g,'\n');
+  // Strip volume annotations like " (400kg)"
+  const sets=raw.replace(/ \(\d+kg\)/g,'').trim();
+  openLogEdit(id,'exercise',date,sets,0);
+}
+
+function openLogEdit(id, type, date, setsOrName, count){
+  _mLogId=id; _mType=type; _mEi=null; _mDate=null;
+  _setModalMode(type);
+  document.getElementById('modal-date-wrap').style.display='block';
+  document.getElementById('modal-date-inp').value=date;
+  if(type==='exercise'){
+    document.getElementById('modal-title').textContent='Edit exercise';
+    document.getElementById('modal-sub').textContent='';
+    document.getElementById('modal-textarea').value=setsOrName;
+  } else {
+    document.getElementById('modal-title').textContent='Edit activity';
+    document.getElementById('modal-sub').textContent='';
+    document.getElementById('modal-act-name').value=setsOrName;
+    document.getElementById('modal-act-count').value=count||1;
+  }
+  document.getElementById('edit-modal').classList.add('open');
+}
+
 function closeModal(){
   document.getElementById('edit-modal').classList.remove('open');
 }
 
 async function saveModal(){
+  let r, msg;
+  const date=document.getElementById('modal-date-inp').value;
+
+  if(_mLogId!==null){
+    // ── Edit from Log tab ──
+    if(_mType==='exercise'){
+      const setsRaw=document.getElementById('modal-textarea').value.trim();
+      if(!setsRaw){alert('Please enter at least one set');return;}
+      r=await fetch('/api/exercises/'+_mLogId,{
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({setsRaw, date})
+      });
+      msg='Exercise updated';
+    } else {
+      const activityName=document.getElementById('modal-act-name').value;
+      const count=parseInt(document.getElementById('modal-act-count').value)||1;
+      if(!date){alert('Please select a date');return;}
+      r=await fetch('/api/activities/'+_mLogId,{
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({date, activityName, count})
+      });
+      msg='Activity updated';
+    }
+    closeModal();
+    await loadData();
+    renderLog();
+    renderActivity();
+    if(r.ok) showToast(msg);
+    return;
+  }
+
+  // ── Edit/add from History tab ──
   const text=document.getElementById('modal-textarea').value;
   if(!text.trim()){alert('Please enter at least one set');return;}
   const ex=window._histExs[_mEi];
   const setsRaw = text.trim();
 
-  let r, msg;
   if(_mDate){
     // Edit existing session
     const s = getMergedSessions(ex)[_mDate];
@@ -1054,10 +1134,14 @@ function renderLog(){
         const name=isEx?e.name:(e.count+' session'+(e.count!==1?'s':''));
         const meta=isEx?e.date:(e.activityName+' &bull; '+e.date);
         const detail=isEx?('<div class="esets">'+e.sets+'</div>'):'';
-        html+='<div class="ecard"><div class="em">'
+        const editBtn=isEx
+          ?'<button class="chip-btn chip-btn-edit" onclick="openLogEditEx('+e.id+',\''+e.date+'\',this)" style="margin-right:4px">Edit</button>'
+          :'<button class="chip-btn chip-btn-edit" onclick="openLogEdit('+e.id+',\'activity\',\''+e.date+'\',\''+e.activityName+'\','+e.count+')" style="margin-right:4px">Edit</button>';
+        html+='<div class="ecard" data-sets="'+( isEx?(e.sets||'').replace(/"/g,'&quot;').replace(/\n/g,'&#10;'):'')+'"><div class="em">'
           +'<div class="emeta">'+meta+'</div>'
           +'<div class="en">'+name+'</div>'+detail+'</div>'
-          +'<button class="del" onclick="delEntry('+e.id+',\''+e.type+'\')" title="Delete">&times;</button></div>';
+          +'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">'+editBtn
+          +'<button class="del" onclick="delEntry('+e.id+',\''+e.type+'\')" title="Delete">&times;</button></div></div>';
       }
     }
     html+='</div>';

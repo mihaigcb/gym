@@ -199,15 +199,32 @@ app.post('/api/exercises', async (req, res) => {
 });
 
 app.put('/api/exercises/:id', async (req, res) => {
-  const { setsRaw } = req.body;
+  const { setsRaw, date } = req.body;
   if (!setsRaw) return res.status(400).json({ error: 'Missing setsRaw' });
   const { totalVol, maxWeight } = computeStats(setsRaw);
   try {
-    const r = await pool.query(
-      'UPDATE exercises SET sets_raw=$1, total_volume=$2, max_weight=$3 WHERE id=$4',
-      [setsRaw, totalVol, maxWeight, req.params.id]
-    );
-    if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    // If a new date is provided, move the exercise to the correct workout row
+    if (date) {
+      const isoDate = date.includes('-') ? date : displayToIso(date);
+      // Get current exercise to know its group_name
+      const exRow = (await pool.query('SELECT workout_id, group_name, name FROM exercises WHERE id=$1', [req.params.id])).rows[0];
+      if (!exRow) return res.status(404).json({ error: 'Not found' });
+      // Find or create workout for the new date
+      let workout = (await pool.query('SELECT id FROM workouts WHERE date=$1', [isoDate])).rows[0];
+      if (!workout) {
+        const wr = await pool.query('INSERT INTO workouts (date, name) VALUES ($1, $2) RETURNING id', [isoDate, exRow.group_name]);
+        workout = wr.rows[0];
+      }
+      await pool.query(
+        'UPDATE exercises SET sets_raw=$1, total_volume=$2, max_weight=$3, workout_id=$4 WHERE id=$5',
+        [setsRaw, totalVol, maxWeight, workout.id, req.params.id]
+      );
+    } else {
+      await pool.query(
+        'UPDATE exercises SET sets_raw=$1, total_volume=$2, max_weight=$3 WHERE id=$4',
+        [setsRaw, totalVol, maxWeight, req.params.id]
+      );
+    }
     invalidateCache();
     res.json({ updated: true });
   } catch (e) {
@@ -237,6 +254,23 @@ app.post('/api/activities', async (req, res) => {
     );
     invalidateCache();
     res.status(201).json({ id: result.rows[0].id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/activities/:id', async (req, res) => {
+  const { date, activityName, count } = req.body;
+  if (!date || !activityName) return res.status(400).json({ error: 'Missing fields' });
+  const isoDate = date.includes('-') ? date : displayToIso(date);
+  try {
+    const r = await pool.query(
+      'UPDATE activity_log SET date=$1, activity_name=$2, count=$3 WHERE id=$4',
+      [isoDate, activityName, count || 1, req.params.id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    invalidateCache();
+    res.json({ updated: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
