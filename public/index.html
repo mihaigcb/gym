@@ -124,7 +124,6 @@ input[type=text]{flex:1;min-width:160px}
 <div class="hdr">
   <span>&#128170;</span>
   <h1>Gym Journal</h1>
-  <span class="hdr-sub">PPLUL &bull; 2024&ndash;2026</span>
 </div>
 <div class="tabs">
   <button class="tab active" onclick="switchTab('log')">Log workout</button>
@@ -379,8 +378,8 @@ function parseLines(text){
   const lines = text.trim().split('\n').map(l=>l.trim()).filter(Boolean);
   let v = 0;
   const d = lines.map(l=>{
-    const m = l.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
-    if(m){ const vol=Math.round(parseFloat(m[1])*parseInt(m[2])); v+=vol; return m[1]+'x'+m[2]+' ('+vol+'kg)'; }
+    const vol=calcLineVol(l);
+    if(vol>0){ v+=vol; return l+' ('+vol+'kg)'; }
     return l;
   }).join('\n');
   return {d, v};
@@ -981,17 +980,20 @@ function updateLogType(){
   if(t==='exercise') updateLogEx();
 }
 
-function calcLinesTotal(lines){
-  return lines.reduce((sum,line)=>{
-    const m=line.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
+function calcLineVol(line){
+  return line.trim().split('+').reduce((sum,part)=>{
+    const m=part.trim().match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
     return sum+(m?Math.round(parseFloat(m[1])*parseInt(m[2])):0);
   },0);
+}
+function calcLinesTotal(lines){
+  return lines.reduce((sum,line)=>sum+calcLineVol(line),0);
 }
 function updateSetsPreview(){
   const lines=document.getElementById('log-sets').value.split('\n');
   const annotated=lines.map(line=>{
-    const m=line.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
-    if(m) return line.trimEnd()+' ('+Math.round(parseFloat(m[1])*parseInt(m[2]))+'kg)';
+    const vol=calcLineVol(line);
+    if(vol>0) return line.trimEnd()+' ('+vol+'kg)';
     return line;
   });
   const total=calcLinesTotal(lines);

@@ -21,14 +21,21 @@ function displayToIso(display) {
   return d.toISOString().slice(0, 10);
 }
 
+function lineVol(line) {
+  // Supports "80x5" and "80x2+80x2" (sum of segments separated by +)
+  return line.trim().split('+').reduce((sum, part) => {
+    const m = part.trim().match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
+    return sum + (m ? Math.round(parseFloat(m[1]) * parseInt(m[2])) : 0);
+  }, 0);
+}
+
 function computeStats(setsRaw) {
   let totalVol = 0, maxWeight = 0;
   for (const line of setsRaw.split('\n')) {
-    const m = line.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
-    if (m) {
-      const w = parseFloat(m[1]), r = parseInt(m[2]);
-      totalVol += Math.round(w * r);
-      if (w > maxWeight) maxWeight = w;
+    totalVol += lineVol(line);
+    for (const part of line.split('+')) {
+      const m = part.trim().match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
+      if (m && parseFloat(m[1]) > maxWeight) maxWeight = parseFloat(m[1]);
     }
   }
   return { totalVol, maxWeight };
@@ -36,8 +43,8 @@ function computeStats(setsRaw) {
 
 function formatSetsRaw(setsRaw) {
   return setsRaw.split('\n').filter(Boolean).map(l => {
-    const m = l.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)/i);
-    if (m) return `${m[1]}x${m[2]} (${Math.round(parseFloat(m[1])*parseInt(m[2]))}kg)`;
+    const vol = lineVol(l);
+    if (vol > 0) return l.trim() + ' (' + vol + 'kg)';
     return l;
   }).join('\n');
 }
