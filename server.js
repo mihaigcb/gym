@@ -84,6 +84,14 @@ async function buildGymData() {
     };
   }
 
+  // Merge in exercises defined via "New exercise" that have no logs yet
+  const defRows = (await pool.query('SELECT group_name, name FROM exercise_definitions')).rows;
+  for (const row of defRows) {
+    if (!exMap.has(row.name)) {
+      exMap.set(row.name, { name: row.name, group: row.group_name, sessions: {} });
+    }
+  }
+
   const gymEx = Array.from(exMap.values()).map(ex => ({
     ...ex,
     chartData: Object.keys(ex.sessions)
@@ -148,6 +156,21 @@ async function buildGymData() {
 app.get('/api/data', async (req, res) => {
   try {
     res.json(await buildGymData());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/exercises/define', async (req, res) => {
+  const { groupName, name } = req.body;
+  if (!groupName || !name) return res.status(400).json({ error: 'Missing fields' });
+  try {
+    await pool.query(
+      'INSERT INTO exercise_definitions (group_name, name) VALUES ($1, $2) ON CONFLICT (group_name, name) DO NOTHING',
+      [groupName, name.trim()]
+    );
+    invalidateCache();
+    res.status(201).json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

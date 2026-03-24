@@ -142,6 +142,7 @@ input[type=text]{flex:1;min-width:160px}
         <option value="Pull">Pull</option>
         <option value="Legs">Legs</option>
       </select>
+      <button class="btn" onclick="openNewExModal()" style="background:#1a1a1a;color:#fff;white-space:nowrap">+ New exercise</button>
       <button class="btn" onclick="exportCSV()" style="background:#fff;color:#1a1a1a;border:1px solid #e5e3de;white-space:nowrap">Export CSV</button>
     </div>
     <div class="cards" id="ex-list"></div>
@@ -294,6 +295,34 @@ input[type=text]{flex:1;min-width:160px}
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
       <button class="btn-save" onclick="saveModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- New exercise modal -->
+<div class="modal-bg" id="new-ex-modal">
+  <div class="modal">
+    <h3>New exercise</h3>
+    <div class="modal-sub">Define a new exercise to make it available in the log dropdown.</div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:10px;color:#aaa;font-weight:600;letter-spacing:.05em;display:block;margin-bottom:4px">MUSCLE GROUP</label>
+      <select id="new-ex-group" style="width:100%;padding:8px 10px;border:1px solid #e5e3de;border-radius:8px;font-size:13px;background:#fff;color:#1a1a1a;outline:none">
+        <option>Chest</option>
+        <option>Back</option>
+        <option>Shoulders</option>
+        <option>Legs (upper)</option>
+        <option>Legs (lower)</option>
+        <option>Triceps</option>
+        <option>Biceps</option>
+      </select>
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:10px;color:#aaa;font-weight:600;letter-spacing:.05em;display:block;margin-bottom:4px">EXERCISE NAME</label>
+      <input type="text" id="new-ex-name" placeholder="e.g. Incline Dumbbell Press" style="width:100%;padding:8px 10px;border:1px solid #e5e3de;border-radius:8px;font-size:13px;background:#fff;color:#1a1a1a;outline:none">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeNewExModal()">Cancel</button>
+      <button class="btn-save" onclick="saveNewEx()">Add exercise</button>
     </div>
   </div>
 </div>
@@ -1201,6 +1230,36 @@ async function init(){
 }
 
 init();
+
+// ── New Exercise ──────────────────────────────────────────────────────────────
+function openNewExModal(){
+  document.getElementById('new-ex-name').value='';
+  document.getElementById('new-ex-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('new-ex-name').focus(),50);
+}
+function closeNewExModal(){
+  document.getElementById('new-ex-modal').classList.remove('open');
+}
+async function saveNewEx(){
+  const name=document.getElementById('new-ex-name').value.trim();
+  const groupName=document.getElementById('new-ex-group').value;
+  if(!name){ document.getElementById('new-ex-name').focus(); return; }
+  const r=await fetch('/api/exercises/define',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,groupName})
+  });
+  if(!r.ok){ const err=await r.json().catch(()=>({})); showToast('Error: '+(err.error||r.status)); return; }
+  closeNewExModal();
+  await loadData();
+  // Refresh all dropdowns that list exercises
+  const groups=[...new Set(GYM_EX.map(e=>e.group))];
+  document.getElementById('sheet-f').innerHTML='<option value="">All</option>'+groups.map(g=>'<option value="'+g+'">'+g+'</option>').join('');
+  document.getElementById('log-sheet').innerHTML=groups.map(g=>'<option value="'+g+'">'+g+'</option>').join('');
+  updateLogEx();
+  renderHistory();
+  showToast('Exercise added: '+name);
+}
 
 let _toastTimer=null;
 // ── Rest Timers ───────────────────────────────────────────────────────────────
